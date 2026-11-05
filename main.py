@@ -71,10 +71,9 @@ def send(peer_id, text):
     except Exception as e:
         print("Ошибка отправки:", e)
 
-print("БОТ ЗАПУЩЕН (Без Мафии)!")
+print("БОТ ЗАПУЩЕН!")
 
 try:
-    # Включаем статус онлайн
     try:
         vk.groups.setSettings(group_id=GROUP_ID, messages_online=True)
     except: pass
@@ -141,7 +140,7 @@ try:
                             if mode == 'video':
                                 send(peer_id, f"🎬 **Ссылка на видео:**\n{links[0]}")
                             elif mode == 'one':
-                                send(peer_id, f"🌿 **Фото загружено!**\n\n🔗 Ссылка: {links[0]}")
+                                send(peer_id, f"🌿 **Фото загружено!**\n\n🔗 Ссылка: {links[0]}\n\nСкопируй её и вставь куда нужно.")
                             else:
                                 final_text = "🌿 **Файлы загружены!**\n\n"
                                 for i, link in enumerate(links, 1):
@@ -173,7 +172,7 @@ try:
                     "📖 **Как пользоваться ботом:**\n\n"
                     "1. Жми кнопку **'Создать ссылку'** и отправь боту картинку.\n"
                     "2. Бот вышлет тебе прямую ссылку на фото.\n"
-                    "3. Скопируй ссылку и вставь на форум.\n\n"
+                    "3. Скопируй ссылку и вставь куда нужно.\n\n"
                     "💾 *Как сохранить на iPhone:* Открой ссылку, зажми картинку и выбери «Сохранить изображение»."
                 )
                 send(peer_id, help_text)
