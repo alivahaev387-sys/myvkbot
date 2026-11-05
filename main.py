@@ -1,17 +1,19 @@
 import vk_api
-from vk_api.longpoll import VkLongPoll, VkEventType
+from vk_api.longpoll import VkLongPoll, VkBotEventType
 import json, random, sqlite3, time, requests
 
-# ===== ТОКЕН =====
-TOKEN = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMbjdYBmf-QH6dwf-ZL4dMYkKMEEiviqU5GPmM5kaG4Xt535Hb1ApvImzJkk_cq-Q7ZxOQYVPbnULj0Fg6U0yDNSPgLwANkGKX348kTlENY6s99NOBeUO-e486DAX-0XtbAa3tmQdMYjF2GLxluGvHrhFHhvr5YCuDXfYxTgw5cYo"
+# ===== НАСТРОЙКИ =====
+# ВСТАВЬТЕ СЮДА ВАШ ТОКЕН ГРУППЫ
+TOKEN = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMbjdYBmf-QH6dwf-ZL4dMYkKMEEiviqU5GPmM5kaG4Xt535Hb1ApvImzJkk_cq-Q7ZxOQYVPbnULj0Fg6U0yDNSPgLwANkGKX348kTlENY6s99NOBeUO-e486DAX-0XtbAa3tmQdMYjF2GLxluGvHrhFHhvr5YCuDXfYxTgw5cYo" "ВАШ_ТОКЕН_ЗДЕСЬ" 
 ADMIN_ID = 200005093141
 GROUP_ID = 242296265 
 GROUP_LINK = "https://vk.com/club242296265"
-IMGBB_API_KEY = "a771230778ab5231d5065a6c92834a11" 
 
 vk_session = vk_api.VkApi(token=TOKEN)
 vk = vk_session.get_api()
-waiting_mode = {}
+
+# Переменные состояния
+waiting_mode = {} # Режим ожидания контента: 'one', 'multi', 'video'
 waiting_for_support = set() 
 waiting_for_manual_report = set()
 waiting_for_reply = {} 
@@ -19,6 +21,7 @@ waiting_for_manual_reply = {}
 reports = {} 
 users_in_report = set() 
 
+# --- БАЗА ДАННЫХ ---
 def init_db():
     conn = sqlite3.connect('super_bot.db')
     c = conn.cursor()
@@ -51,6 +54,7 @@ def add_upload(user_id):
 
 init_db()
 
+# --- ПРОВЕРКИ ---
 def is_subscribed(user_id):
     try:
         res = vk.groups.isMember(group_id=GROUP_ID, user_id=user_id)
@@ -67,58 +71,50 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
-# --- СУПЕР-ЗАЩИТА: ПРОКСИ ДЛЯ ЗАГРУЗКИ ---
-def get_clean_link(vk_image_url):
+# --- TELEGRAPH API ---
+def get_telegraph_token():
+    """Получает токен для создания страниц"""
     try:
-        # Скачиваем фото с прокси (притворяемся браузером)
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        # Создаем аккаунт (или используем существующий, если нужно постоянное имя)
+        res = requests.post("https://api.telegra.ph/createAccount", data={
+            "short_name": "PhotoBotLinker",
+            "author_name": "VK Bot",
+            "author_url": GROUP_LINK
+        }).json()
+        if res.get("ok"): 
+            return res["result"]["access_token"]
+    except: pass
+    return None
+
+def upload_image_to_telegraph(img_data):
+    """Загружает картинку и возвращает ссылку"""
+    try:
+        res = requests.post("https://api.telegra.ph/upload", files={'file': ('image.jpg', img_data)}, timeout=10).json()
+        if isinstance(res, list) and 'src' in res[0]:
+            return f"https://telegra.ph{res[0]['src']}"
+    except: pass
+    return None
+
+def create_telegraph_page(title, image_urls, token):
+    """Создает одну страницу с несколькими картинками"""
+    try:
+        # Формируем контент для Telegraph
+        content = [{"tag": "img", "attrs": {"src": url}} for url in image_urls]
         
-        # Пытаемся получить саму картинку через прокси, чтобы обойти блокировку ВК
-        proxy_url = f"https://api.allorigins.win/raw?url={vk_image_url}"
-        img_data = requests.get(proxy_url, headers=headers, timeout=10).content
-        
-        # Если скачался мусор (ошибка прокси), пробуем напрямую
-        if len(img_data) < 2000:
-            img_data = requests.get(vk_image_url, headers=headers, timeout=10).content
-            
-        if len(img_data) < 2000:
-            return None
-
-        # 1. Пытаемся загрузить на ImgBB (ждем 10 секунд)
-        try:
-            res = requests.post(
-                "https://api.imgbb.com/1/upload",
-                params={"key": IMGBB_API_KEY},
-                files={"image": img_data},
-                timeout=10
-            ).json()
-            if res.get("success"): return res["data"]["url"]
-        except: pass
-            
-        # 2. Если ImgBB упал, летим на Telegraph
-        try:
-            res = requests.post('https://api.telegra.ph/upload', files={'file': ('image.jpg', img_data)}, timeout=10)
-            if res.status_code == 200:
-                return f"https://telegra.ph{res.json()[0]['src']}"
-        except: pass
-
-        # 3. Если и он упал, летим на Catbox
-        try:
-            res = requests.post("https://catbox.moe/user/api.php", data={"reqtype": "fileupload"}, files={"fileToUpload": ("image.jpg", img_data)}, timeout=10)
-            if res.status_code == 200 and "http" in res.text: return res.text.strip()
-        except: pass
-
-        # 4. Если ВСЕ УПАЛИ — делаем маскировку через wsrv.nl (это не даст ошибку, но ссылка будет работать)
-        clean_url = vk_image_url.replace('https://', '').replace('http://', '')
-        return f"https://wsrv.nl/?url={clean_url}&w=1200"
-                
+        payload = {
+            "access_token": token, 
+            "title": title, 
+            "content": json.dumps(content), 
+            "return_content": False
+        }
+        res = requests.post("https://api.telegra.ph/createPage", data=payload, timeout=10).json()
+        if res.get("ok"): 
+            return res["result"]["url"]
     except Exception as e:
-        print("Критическая ошибка загрузки:", e)
-        # Даже если всё сломалось, выдаем замаскированную ссылку ВК!
-        clean_url = vk_image_url.replace('https://', '').replace('http://', '')
-        return f"https://wsrv.nl/?url={clean_url}&w=1200"
+        print(f"Ошибка создания страницы: {e}")
+    return None
 
-# --- КЛАВИАТУРЫ ---
+# --- КЛАВИАТУРЫ (БЕЗ ИЗМЕНЕНИЙ) ---
 def get_main_kb():
     return json.dumps({
         "one_time": False, 
@@ -193,7 +189,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (Прокси + Обход блокировок)!")
+print("БОТ ЗАПУЩЕН! Режим: Одна ссылка на альбом фото.")
 
 try:
     longpoll = VkLongPoll(vk_session)
@@ -204,11 +200,12 @@ try:
             text = event.text.strip()
             text_lower = text.lower()
 
+            # === СТАРТ ===
             if text_lower == "начать" or text_lower == "start":
                 send(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
                 continue
 
-            # РЕПОРТЫ И ОТВЕТЫ АДМИНА
+            # === АДМИНКА И РЕПОРТЫ (БЕЗ ИЗМЕНЕНИЙ) ===
             if user_id in waiting_for_manual_report:
                 support_text = f"🆘 **Репорт от** [id{user_id}|Игрок]:\n\n{text}"
                 msg_res = send(ADMIN_ID, support_text, keyboard=get_report_kb())
@@ -266,7 +263,7 @@ try:
                 waiting_for_support.remove(user_id)
                 continue
 
-            # СТАТИСТИКА
+            # === СТАТИСТИКА ===
             if text_lower == "стата" and user_id == ADMIN_ID:
                 conn = sqlite3.connect('super_bot.db')
                 c = conn.cursor()
@@ -281,7 +278,7 @@ try:
                 send(peer_id, stats_text)
                 continue
 
-            # ЧС И ПОДПИСКА
+            # === ПРОВЕРКА БЛОКИРОВКИ И ПОДПИСКИ ===
             warns, ban_until, uploads = get_user_data(user_id)
             current_time = int(time.time())
 
@@ -293,81 +290,103 @@ try:
                 send(peer_id, f"🔒 **Доступ ограничен!**\nПодпишись: {GROUP_LINK}")
                 continue
 
-            # ОБРАБОТКА ФОТО/ВИДЕО
+            # === ОБРАБОТКА ФОТО/ВИДЕО (ГЛАВНАЯ ЛОГИКА) ===
             if peer_id in waiting_mode:
                 try:
                     msg_info = vk.messages.getById(message_ids=event.message_id)
                     items = msg_info.get('items', [])
                     if items:
                         attachments = items[0].get('attachments', [])
-                        links = []
-                        is_video, is_photo = False, False
+                        urls = []
                         
+                        # Сбор ссылок на фото
                         for attach in attachments:
                             if attach.get('type') == 'photo':
-                                is_photo = True
                                 sizes = attach['photo'].get('sizes', [])
-                                # Берем самый большой размер
-                                if sizes: links.append(sizes[-1]['url'])
-                            elif attach.get('type') == 'video':
-                                is_video = True
-                                v_id = attach['video']['id']
-                                o_id = attach['video']['owner_id']
-                                links.append(f"https://vk.com/video{o_id}_{v_id}")
+                                best_url = None
+                                # Ищем оптимальный размер
+                                for size in sizes:
+                                    if size.get('type') in ['y', 'x']: # y=807, x=604
+                                        best_url = size['url']
+                                        break
+                                if not best_url and sizes: best_url = sizes[-1]['url']
+                                if best_url: urls.append(best_url)
                         
                         mode = waiting_mode[peer_id]
                         
-                        if mode == 'video':
-                            if is_photo and not is_video:
-                                send(peer_id, "❌ **Это не видео!**", keyboard=get_main_kb())
-                            elif is_video and links:
+                        # Если режим 'one' (одно фото), обрезаем список до 1 элемента
+                        if mode == 'one' and len(urls) > 1:
+                            urls = urls[:1] 
+
+                        if urls:
+                            send(peer_id, "⏳ Загружаю фото и создаю ссылку...")
+                            
+                            # 1. Загружаем все картинки на хостинг Telegraph
+                            uploaded_urls = []
+                            for u in urls:
+                                try:
+                                    img_data = requests.get(u, timeout=10).content
+                                    tg_link = upload_image_to_telegraph(img_data)
+                                    if tg_link: uploaded_urls.append(tg_link)
+                                except:
+                                    continue
+                            
+                            if uploaded_urls:
                                 add_upload(user_id)
-                                send(peer_id, f"🎬 **Ссылка:**\n{links[0]}", keyboard=get_main_kb())
-                        elif mode == 'one':
-                            if is_photo and links:
-                                clean_link = get_clean_link(links[0])
-                                if clean_link:
-                                    add_upload(user_id)
-                                    final_text = (f"🌿 **Твоя фотография загружена!**\n\n"
-                                                  f"🔗 Ссылка: {clean_link}\n\n"
-                                                  f"💾 **Как сохранить:**\n1. Нажми на ссылку (откроется в браузере).\n2. Зажми картинку пальцем и выбери «Сохранить изображение».")
-                                    send(peer_id, final_text, keyboard=get_main_kb())
-                                else:
-                                    send(peer_id, "⚠️ **Все сервера перегружены.** Попробуй еще раз через минуту.", keyboard=get_main_kb())
-                            else:
-                                send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
-                        elif mode == 'multi':
-                            if is_photo and links:
-                                final_text = "🌿 **Твои фотографии загружены!**\n\n"
-                                success_count = 0
-                                for i, link in enumerate(links, 1):
-                                    clean_link = get_clean_link(link)
-                                    if clean_link:
-                                        final_text += f"🔗 Фото {i}: {clean_link}\n\n"
-                                        success_count += 1
                                 
-                                if success_count > 0:
-                                    add_upload(user_id)
-                                    final_text += "💾 *Зажми картинку в браузере и выбери «Сохранить».*"
-                                    send(peer_id, final_text, keyboard=get_main_kb())
+                                # 2. Генерация ссылки
+                                final_link = ""
+                                
+                                if len(uploaded_urls) == 1:
+                                    # Если фото одно - прямая ссылка на картинку
+                                    final_link = uploaded_urls[0]
+                                    msg_text = (f"🌿 **Твоя фотография готова!**\n\n"
+                                                f"🔗 Ссылка: {final_link}\n\n"
+                                                f"💾 Нажми на ссылку, чтобы открыть и сохранить.")
                                 else:
-                                    send(peer_id, "⚠️ **Все сервера перегружены.** Попробуй позже.", keyboard=get_main_kb())
+                                    # Если фото несколько - создаем СТРАНИЦУ с галереей
+                                    token = get_telegraph_token()
+                                    page_url = create_telegraph_page("Фотоальбом", uploaded_urls, token) if token else None
+                                    
+                                    if page_url:
+                                        final_link = page_url
+                                        msg_text = (f"🌿 **Твои {len(uploaded_urls)} фото загружены!**\n\n"
+                                                    f"🔗 Общая ссылка: {final_link}\n\n"
+                                                    f"💾 Внутри ссылки находятся все твои фото.")
+                                    else:
+                                        # Фоллбек: если страница не создалась, кидаем списком
+                                        final_link = "Список ссылок ниже"
+                                        msg_text = "🌿 **Твои фотографии загружены!**\n\n"
+                                        for i, link in enumerate(uploaded_urls, 1):
+                                            msg_text += f"🔗 Фото {i}: {link}\n"
+                                
+                                send(peer_id, msg_text, keyboard=get_main_kb())
                             else:
-                                send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
-                except Exception as e: print(e)
+                                send(peer_id, "⚠️ **Ошибка загрузки.** Попробуй еще раз.", keyboard=get_main_kb())
+                        else:
+                            send(peer_id, "❌ В сообщении нет фото.", keyboard=get_main_kb())
+                except Exception as e: 
+                    print(e)
+                
+                # Сброс режима ожидания
                 if peer_id in waiting_mode: del waiting_mode[peer_id]
                 continue
 
-            # КНОПКИ МЕНЮ
+            # === КНОПКИ МЕНЮ ===
             if "видео" in text_lower:
                 waiting_mode[peer_id] = 'video'
-                send(peer_id, "🎬 **Отправь мне видео!**", keyboard=get_main_kb())
+                send(peer_id, "🎬 **Отправь мне видео!** (Пока работает только с фото, но режим активирован)", keyboard=get_main_kb())
+            
             elif "несколько" in text_lower:
+                # Режим для альбома -> одна ссылка
                 waiting_mode[peer_id] = 'multi'
-                send(peer_id, "📸 **Отправь мне несколько фото!**", keyboard=get_main_kb())
+                send(peer_id, "📸 **Отправь мне несколько фото!**\nЯ объединю их в одну ссылку.", keyboard=get_main_kb())
+            
             elif "загрузить фото" in text_lower or "создать ссылку" in text_lower:
+                # Режим для одного фото
                 waiting_mode[peer_id] = 'one'
-                send(peer_id, "📸 **Отправь мне фотографию, и я сделаю из неё прямую ссылку!**", keyboard=get_main_kb())
+                send(peer_id, "📸 **Отправь мне фотографию!**", keyboard=get_main_kb())
+            
             elif "статистика" in text_lower:
                 send(peer_id, f"📊 **Загружено:** {uploads}", keyboard=get_main_kb())
             
