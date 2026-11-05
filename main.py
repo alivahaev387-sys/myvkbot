@@ -3,7 +3,7 @@ from vk_api.longpoll import VkLongPoll, VkEventType
 import json, random, sqlite3, time
 
 # ===== НАСТРОЙКИ =====
-TOKEN = "vk1.a.gQFcsQKruH5TchxgUWh13DsF_6Gz1ELhYd1NoL6Y4nPX-WsQYskpp4llV6fBNpySgogQp6zlky8j3wXRQLqNufPpLReUV1W_ew0KuQHAcXwuQ_kbPHOS3TfXnxr3mKPw72WrPtnV62LeLWxkQjbWlJMszWUDU_ygov2CN7O-RQLe6sAxEmGNbJ8DlYNysnwLyrsz9xXCUQ5g11Vs0qjCXPUTllPaLfRXmlty3U2ZFvM"
+TOKEN = "vk1.a.ZJv5Q0c0NZUB1AHhY9bDgkq8_yuchIdQweB1DzzAxa_cx6HTZJ7HEg2KlJtP2n_kOuFSFk_M8HRPAtChfrdd6S4y8_1Sp0dlw2hbwuewcIjBDaFR5DlqskY9sfqcsSoycuNQUR9T4rNpqqVc7DDvSItqI4WqNRcpW5v7oO0Zv7Laeh4uE0E754_I35PGFqxnKk_Rc7Sy57gx2hlriWzAJ1VhBDQMeMLXmg0t_yZBN8o"
 ADMIN_ID = 200005093141
 GROUP_ID = 242296265 
 GROUP_LINK = "https://vk.com/club242296265"
@@ -11,6 +11,16 @@ GROUP_LINK = "https://vk.com/club242296265"
 vk_session = vk_api.VkApi(token=TOKEN)
 vk = vk_session.get_api()
 waiting_mode = {}
+
+# Режимы ожидания
+waiting_for_support = set() 
+waiting_for_manual_report = set()
+waiting_for_reply = {} 
+waiting_for_manual_reply = {} 
+
+# Списки для репортов и КД
+reports = {} 
+users_in_report = set() 
 
 # --- БАЗА ДАННЫХ ---
 def init_db():
@@ -45,7 +55,6 @@ def add_upload(user_id):
 
 init_db()
 
-# --- ПРОВЕРКА ПОДПИСКИ ---
 def is_subscribed(user_id):
     try:
         res = vk.groups.isMember(group_id=GROUP_ID, user_id=user_id)
@@ -53,46 +62,172 @@ def is_subscribed(user_id):
     except:
         return False
 
-def send(peer_id, text):
-    kb = {
-        "one_time": False, 
-        "buttons": [
-            [{"action": {"type": "text", "label": "📸 Создать ссылку"}, "color": "positive"}],
-            [{"action": {"type": "text", "label": "📸 Несколько фото"}, "color": "primary"}],
-            [{"action": {"type": "text", "label": "🎬 Скачать видео"}, "color": "primary"}],
-            [{"action": {"type": "text", "label": "📊 Моя статистика"}, "color": "secondary"}],
-            [{"action": {"type": "text", "label": "📖 Помощь"}, "color": "negative"}]
-        ]
-    }
+def send(peer_id, text, keyboard=None):
+    params = {'peer_id': peer_id, 'message': text, 'random_id': random.randint(1, 2**31)}
+    if keyboard: params['keyboard'] = keyboard
     try:
-        if len(text) > 4000:
-            text = text[:4000] + "\n... (обрезано)"
-        vk.messages.send(peer_id=peer_id, message=text, keyboard=json.dumps(kb, ensure_ascii=False), random_id=random.randint(1, 2**31))
+        return vk.messages.send(**params)
     except Exception as e:
         print("Ошибка отправки:", e)
+        return None
+
+# --- КЛАВИАТУРЫ ---
+def get_main_kb():
+    return json.dumps({
+        "one_time": False, 
+        "buttons": [
+            [{"action": {"type": "text", "label": "📸 Загрузить фото"}, "color": "positive"},
+             {"action": {"type": "text", "label": "📸 Несколько фото"}, "color": "positive"}],
+            [{"action": {"type": "text", "label": "🎬 Загрузка видео"}, "color": "primary"},
+             {"action": {"type": "text", "label": "📊 Статистика"}, "color": "secondary"}],
+            [{"action": {"type": "text", "label": "📖 Помощь"}, "color": "negative"}]
+        ]
+    }, ensure_ascii=False)
+
+def get_help_kb():
+    return json.dumps({
+        "one_time": False, 
+        "buttons": [
+            [{"action": {"type": "text", "label": "📩 Связь с администрацией"}, "color": "primary"}],
+            [{"action": {"type": "text", "label": "⬅️ Назад"}, "color": "secondary"}]
+        ]
+    }, ensure_ascii=False)
+
+def get_choice_kb_player():
+    return json.dumps({
+        "one_time": False, 
+        "buttons": [
+            [{"action": {"type": "text", "label": "📋 Выбор по шаблонам"}, "color": "primary"},
+             {"action": {"type": "text", "label": "✍️ Свой вопрос"}, "color": "positive"}],
+            [{"action": {"type": "text", "label": "⬅️ Назад"}, "color": "secondary"}]
+        ]
+    }, ensure_ascii=False)
+
+def get_choice_kb_admin():
+    return json.dumps({
+        "one_time": False, 
+        "buttons": [
+            [{"action": {"type": "text", "label": "📋 Шаблоны ответов"}, "color": "primary"},
+             {"action": {"type": "text", "label": "✍️ Свой ответ"}, "color": "positive"}],
+            [{"action": {"type": "text", "label": "⬅️ Назад"}, "color": "secondary"}]
+        ]
+    }, ensure_ascii=False)
+
+def get_templates_kb():
+    return json.dumps({
+        "one_time": False,
+        "buttons": [
+            [{"action": {"type": "text", "label": "❌ Фото не загрузилось"}, "color": "secondary"},
+             {"action": {"type": "text", "label": "❌ Ссылка не открывается"}, "color": "secondary"}],
+            [{"action": {"type": "text", "label": "❌ Видео не скачивается"}, "color": "secondary"},
+             {"action": {"type": "text", "label": "❌ На iPhone не сохраняется"}, "color": "secondary"}],
+            [{"action": {"type": "text", "label": "⬅️ Назад"}, "color": "secondary"}]
+        ]
+    }, ensure_ascii=False)
+
+def get_admin_reply_templates_kb():
+    return json.dumps({
+        "one_time": False,
+        "buttons": [
+            [{"action": {"type": "text", "label": "✅ Исправлено, проверяй"}, "color": "positive"},
+             {"action": {"type": "text", "label": "⏳ Скоро починим"}, "color": "primary"}],
+            [{"action": {"type": "text", "label": "📱 Скачай с компа"}, "color": "secondary"},
+             {"action": {"type": "text", "label": "🔄 Попробуй еще раз"}, "color": "secondary"}],
+            [{"action": {"type": "text", "label": "⬅️ Назад"}, "color": "secondary"}]
+        ]
+    }, ensure_ascii=False)
+
+def get_report_kb():
+    return json.dumps({
+        "one_time": False,
+        "buttons": [
+            [{"action": {"type": "text", "label": "✍️ Ответить на репорт"}, "color": "positive"}],
+            [{"action": {"type": "text", "label": "⬅️ Назад"}, "color": "secondary"}]
+        ]
+    }, ensure_ascii=False)
 
 print("БОТ ЗАПУЩЕН!")
 
 try:
-    try:
-        vk.groups.setSettings(group_id=GROUP_ID, messages_online=True)
-    except: pass
-
     longpoll = VkLongPoll(vk_session)
     for event in longpoll.listen():
         if event.type == VkEventType.MESSAGE_NEW and event.to_me:
             peer_id = event.peer_id
             user_id = peer_id 
-            text = event.text.lower().strip()
+            text = event.text.strip()
+            text_lower = text.lower()
+
+            # === ИГРОК В РЕЖИМЕ РУЧНОГО ВОПРОСА ===
+            if user_id in waiting_for_manual_report:
+                support_text = f"🆘 **Репорт от** [id{user_id}|Игрок]:\n\n{text}"
+                msg_res = send(ADMIN_ID, support_text, keyboard=get_report_kb())
+                if msg_res: 
+                    reports[msg_res] = user_id
+                    users_in_report.add(user_id) 
+                send(user_id, "✅ Твой репорт отправлен! Ожидай ответа.", keyboard=get_main_kb())
+                waiting_for_manual_report.remove(user_id)
+                continue
+
+            # === АДМИН В РЕЖИМЕ РУЧНОГО ОТВЕТА ===
+            if user_id == ADMIN_ID and ADMIN_ID in waiting_for_manual_reply:
+                target_user_id = waiting_for_manual_reply[ADMIN_ID]
+                send(target_user_id, f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n{text}", keyboard=get_main_kb())
+                send(ADMIN_ID, f"✅ Ответ доставлен [id{target_user_id}|Игроку].", keyboard=get_main_kb())
+                del waiting_for_manual_reply[ADMIN_ID]
+                users_in_report.discard(target_user_id) 
+                continue
+
+            # === АДМИН ВЫБИРАЕТ СПОСОБ ОТВЕТА ===
+            if user_id == ADMIN_ID and text_lower == "✍️ ответить на репорт":
+                if reports:
+                    last_msg_id = list(reports.keys())[-1]
+                    target_user_id = reports[last_msg_id]
+                    waiting_for_reply[ADMIN_ID] = target_user_id
+                    send(ADMIN_ID, f"✍️ Выбери способ ответа для [id{target_user_id}|Игрока]:", keyboard=get_choice_kb_admin())
+                continue
+                
+            # Админ выбрал "Шаблоны ответов" -> Показываем шаблоны, НЕ отправляем текст
+            if user_id == ADMIN_ID and text_lower == "📋 шаблоны ответов":
+                if waiting_for_reply.get(ADMIN_ID):
+                    send(ADMIN_ID, "📋 Выбери готовый шаблон для отправки:", keyboard=get_admin_reply_templates_kb())
+                continue
+                
+            # Админ выбрал "Свой ответ" -> Ждем текст
+            if user_id == ADMIN_ID and text_lower == "✍️ свой ответ":
+                if waiting_for_reply.get(ADMIN_ID):
+                    target_user_id = waiting_for_reply.pop(ADMIN_ID)
+                    waiting_for_manual_reply[ADMIN_ID] = target_user_id
+                    send(ADMIN_ID, f"✍️ Напиши свой текст ответа для [id{target_user_id}|Игрока]:", keyboard=get_main_kb())
+                continue
+
+            # === АДМИН ВЫБРАЛ КОНКРЕТНЫЙ ШАБЛОН (ОТПРАВКА) ===
+            if user_id == ADMIN_ID and ADMIN_ID in waiting_for_reply:
+                if text_lower in ["✅ исправлено, проверяй", "⏳ скоро починим", "📱 скачай с компа", "🔄 попробуй еще раз"]:
+                    target_user_id = waiting_for_reply[ADMIN_ID]
+                    send(target_user_id, f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n{text}", keyboard=get_main_kb())
+                    send(ADMIN_ID, f"✅ Ответ доставлен [id{target_user_id}|Игроку].", keyboard=get_main_kb())
+                    del waiting_for_reply[ADMIN_ID] 
+                    users_in_report.discard(target_user_id) 
+                continue
+
+            # === ИГРОК ВЫБРАЛ ШАБЛОН (ОТПРАВКА) ===
+            if user_id in waiting_for_support:
+                support_text = f"🆘 **Репорт от** [id{user_id}|Игрок]:\n\n{text}"
+                msg_res = send(ADMIN_ID, support_text, keyboard=get_report_kb())
+                if msg_res: 
+                    reports[msg_res] = user_id
+                    users_in_report.add(user_id) 
+                send(user_id, "✅ Репорт отправлен! Ожидай.", keyboard=get_main_kb())
+                waiting_for_support.remove(user_id)
+                continue
 
             # === СТАТИСТИКА АДМИНА ===
-            if text == "стата" and user_id == ADMIN_ID:
+            if text_lower == "стата" and user_id == ADMIN_ID:
                 conn = sqlite3.connect('super_bot.db')
                 c = conn.cursor()
                 c.execute("SELECT user_id, warns, ban_until, uploads FROM users")
                 all_users = c.fetchall()
                 conn.close()
-                
                 stats_text = "📊 **Статистика:**\n\n"
                 for u_id, w, b_until, ups in all_users:
                     if w > 0 or b_until > time.time() or ups > 0:
@@ -101,17 +236,16 @@ try:
                 send(peer_id, stats_text)
                 continue
 
-            # === ПРОВЕРКА НА ЧС ===
+            # === ПРОВЕРКА НА ЧС И ПОДПИСКУ ===
             warns, ban_until, uploads = get_user_data(user_id)
             current_time = int(time.time())
 
             if ban_until > current_time:
-                send(peer_id, f"⛔ **Вы заблокированы в боте!**\nОсталось: {(ban_until - current_time)//86400} дн.")
+                send(peer_id, f"⛔ **Вы заблокированы!**\nОсталось: {(ban_until - current_time)//86400} дн.")
                 continue
 
-            # === ПРОВЕРКА ПОДПИСКИ ===
             if not is_subscribed(user_id):
-                send(peer_id, f"🔒 **Доступ ограничен!**\n\nПодпишись: {GROUP_LINK}\nЗатем напиши боту снова.")
+                send(peer_id, f"🔒 **Доступ ограничен!**\nПодпишись: {GROUP_LINK}")
                 continue
 
             # === ОБРАБОТКА ФОТО / ВИДЕО ===
@@ -119,67 +253,106 @@ try:
                 try:
                     msg_info = vk.messages.getById(message_ids=event.message_id)
                     items = msg_info.get('items', [])
-                    
                     if items:
                         attachments = items[0].get('attachments', [])
                         links = []
+                        is_video, is_photo = False, False
                         
                         for attach in attachments:
                             if attach.get('type') == 'photo':
+                                is_photo = True
                                 sizes = attach['photo'].get('sizes', [])
                                 if sizes: links.append(sizes[-1]['url'])
                             elif attach.get('type') == 'video':
+                                is_video = True
                                 v_id = attach['video']['id']
                                 o_id = attach['video']['owner_id']
                                 links.append(f"https://vk.com/video{o_id}_{v_id}")
                         
-                        if links:
-                            add_upload(user_id)
-                            mode = waiting_mode[peer_id]
-                            
-                            if mode == 'video':
-                                send(peer_id, f"🎬 **Ссылка на видео:**\n{links[0]}")
-                            elif mode == 'one':
-                                send(peer_id, f"🌿 **Фото загружено!**\n\n🔗 Ссылка: {links[0]}\n\nСкопируй её и вставь куда нужно.")
+                        mode = waiting_mode[peer_id]
+                        
+                        # КРАСИВЫЙ ОТВЕТ ПРИ УСПЕШНОЙ ЗАГРУЗКЕ
+                        if mode == 'video':
+                            if is_photo and not is_video:
+                                send(peer_id, "❌ **Это не видео!** Пожалуйста, отправь видеофайл.", keyboard=get_main_kb())
+                            elif is_video and links:
+                                add_upload(user_id)
+                                final_text = (
+                                    f"🎬 **Твоя ссылка на видео готова!**\n\n"
+                                    f"🔗 Ссылка: {links[0]}\n\n"
+                                    f"💾 **Как сохранить:**\n"
+                                    f"1. Нажми на ссылку.\n"
+                                    f"2. В открывшемся окне нажми «Скачать».\n\n"
+                                    f"👇 *Скопируй ссылку или нажми на неё.*"
+                                )
+                                send(peer_id, final_text, keyboard=get_main_kb())
+                        elif mode == 'one':
+                            if is_photo and links:
+                                add_upload(user_id)
+                                final_text = (
+                                    f"🌿 **Твоя фотография загружена!**\n\n"
+                                    f"🔗 Ссылка: {links[0]}\n\n"
+                                    f"💾 **Как сохранить в галерею:**\n"
+                                    f"1. Нажми на ссылку.\n"
+                                    f"2. Когда картинка откроется, **зажми её пальцем** и выбери «Сохранить изображение» (или «Добавить в Фото»).\n\n"
+                                    f"👇 *Скопируй ссылку или нажми на неё.*"
+                                )
+                                send(peer_id, final_text, keyboard=get_main_kb())
                             else:
-                                final_text = "🌿 **Файлы загружены!**\n\n"
+                                send(peer_id, "❌ Отправь именно фото!", keyboard=get_main_kb())
+                        elif mode == 'multi':
+                            if is_photo and links:
+                                add_upload(user_id)
+                                final_text = "🌿 **Твои фотографии загружены!**\n\n"
                                 for i, link in enumerate(links, 1):
-                                    final_text += f"🔗 Файл {i}: {link}\n\n"
-                                send(peer_id, final_text)
+                                    final_text += f"🔗 Фото {i}: {link}\n\n"
+                                final_text += (
+                                    f"💾 **Как сохранить:**\n"
+                                    f"1. Нажми на нужную ссылку.\n"
+                                    f"2. Зажми картинку в браузере и выбери «Сохранить».\n\n"
+                                    f"👇 *Скопируй ссылки или нажми на них.*"
+                                )
+                                send(peer_id, final_text, keyboard=get_main_kb())
+                            else:
+                                send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
                 except Exception as e: print(e)
-                
                 if peer_id in waiting_mode: del waiting_mode[peer_id]
                 continue
 
             # === ЛОГИКА КНОПОК ===
-            if "видео" in text:
+            if "видео" in text_lower:
                 waiting_mode[peer_id] = 'video'
-                send(peer_id, "🎬 Отправь видео, и я дам ссылку.")
-            elif "несколько фото" in text:
+                send(peer_id, "🎬 **Отправь мне видео, и я сгенерирую на него ссылку!**", keyboard=get_main_kb())
+            elif "несколько" in text_lower:
                 waiting_mode[peer_id] = 'multi'
-                send(peer_id, "📸 Отправь сразу несколько фото.")
-            elif "создать ссылку" in text:
+                send(peer_id, "📸 **Отправь мне несколько фото, и я выдам ссылки на каждое!**", keyboard=get_main_kb())
+            elif "загрузить фото" in text_lower or "создать ссылку" in text_lower:
                 waiting_mode[peer_id] = 'one'
-                send(peer_id, "📸 Отправь одно фото.")
-            elif "моя статистика" in text:
-                rank = "Новичок"
-                if uploads >= 10: rank = "Хостинг-Мастер"
-                elif uploads >= 5: rank = "Активный"
-                elif uploads >= 1: rank = "Пользователь"
-                send(peer_id, f"📊 **Твоя статистика:**\n\n📤 Загружено файлов: {uploads}\n🏅 Твой ранг: {rank}")
-            elif "помощь" in text:
-                help_text = (
-                    "📖 **Как пользоваться ботом:**\n\n"
-                    "1. Жми кнопку **'Создать ссылку'** и отправь боту картинку.\n"
-                    "2. Бот вышлет тебе прямую ссылку на фото.\n"
-                    "3. Скопируй ссылку и вставь куда нужно.\n\n"
-                    "💾 *Как сохранить на iPhone:* Открой ссылку, зажми картинку и выбери «Сохранить изображение»."
-                )
-                send(peer_id, help_text)
-            elif text == "начать" or text == "start":
-                send(peer_id, "Привет! Выбирай действие на кнопках внизу 👇")
-            else:
-                send(peer_id, "Жми кнопки внизу 👇")
+                send(peer_id, "📸 **Отправь мне фотографию, и я сделаю из неё прямую ссылку!**", keyboard=get_main_kb())
+            elif "статистика" in text_lower:
+                send(peer_id, f"📊 **Твоя статистика:**\n\n📤 Загружено файлов: {uploads}", keyboard=get_main_kb())
+            
+            # --- ПОМОЩЬ И СВЯЗЬ ---
+            elif "помощь" in text_lower:
+                help_text = "📖 Как пользоваться ботом:\n1. Жми 'Загрузить фото'.\n2. Отправь картинку.\n3. Получи ссылку."
+                send(peer_id, help_text, keyboard=get_help_kb())
+                
+            elif "связь с администрацией" in text_lower:
+                if user_id in users_in_report:
+                    send(peer_id, "⏳ **У вас уже есть активный репорт!**\n\nПожалуйста, дождитесь ответа администратора.", keyboard=get_main_kb())
+                else:
+                    send(peer_id, "📩 Выберите способ обращения:", keyboard=get_choice_kb_player())
+                    
+            elif "выбор по шаблонам" in text_lower:
+                send(peer_id, "📩 **Выберите тему обращения:**", keyboard=get_templates_kb())
+                waiting_for_support.add(user_id)
+                
+            elif "свой вопрос" in text_lower:
+                send(peer_id, "✍️ **Напишите вашу проблему одним сообщением:**", keyboard=get_main_kb())
+                waiting_for_manual_report.add(user_id)
+                
+            elif "назад" in text_lower or text_lower == "начать" or text_lower == "start":
+                send(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
 
 except Exception as e:
     print("КРИТИЧЕСКАЯ ОШИБКА:", e)
