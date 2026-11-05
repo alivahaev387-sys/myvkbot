@@ -67,35 +67,44 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
-# --- НОВАЯ ФУНКЦИЯ БЫСТРОЙ ЗАГРУЗКИ ---
+# --- МГНОВЕННАЯ ЗАГРУЗКА (БЕЗ ЗАВИСАНИЙ) ---
 def get_clean_link(vk_image_url):
-    # 1. Пытаемся загрузить напрямую через Image2URL (не требует ключей, принимает URL)
     try:
-        res = requests.post(
-            "https://www.image2url.com/api/upload",
-            json={"url": vk_image_url},
-            timeout=5 # Ждем максимум 5 секунд
-        ).json()
-        if "url" in res:
-            return res["url"]
-    except Exception as e:
-        print("Image2URL не ответил:", e)
+        # Скачиваем фото (ждем максимум 5 секунд)
+        img_data = requests.get(vk_image_url, timeout=5).content
+        
+        # 1. Пытаемся загрузить на ImgBB (ждем 5 секунд)
+        try:
+            res = requests.post(
+                "https://api.imgbb.com/1/upload",
+                params={"key": IMGBB_API_KEY},
+                files={"image": img_data},
+                timeout=5
+            ).json()
+            if res.get("success"): return res["data"]["url"]
+        except: pass
+            
+        # 2. Если ImgBB не ответил, мгновенно летим на FreeImage (ждем 5 секунд)
+        try:
+            res = requests.post(
+                "https://freeimage.host/api/1/upload",
+                data={"key": "6d207e02198a847aa98d0a2a901485a5"}, # Публичный ключ
+                files={"source": img_data},
+                timeout=5
+            ).json()
+            if res.get("status_code") == 200: return res["image"]["url"]
+        except: pass
 
-    # 2. Если Image2URL не справился, пробуем ImgBB
-    try:
-        res = requests.post(
-            "https://api.imgbb.com/1/upload",
-            params={"key": IMGBB_API_KEY},
-            data={"image": vk_image_url}, # Передаем URL напрямую
-            timeout=5
-        ).json()
-        if res.get("success"):
-            return res["data"]["url"]
-    except Exception as e:
-        print("ImgBB не ответил:", e)
-
-    # Если оба не справились, возвращаем None
-    return None
+        # 3. Если и он упал, пробуем Telegraph (ждем 5 секунд)
+        try:
+            res = requests.post('https://api.telegra.ph/upload', files={'file': ('image.jpg', img_data)}, timeout=5)
+            if res.status_code == 200:
+                return f"https://telegra.ph{res.json()[0]['src']}"
+        except: pass
+                
+        return None
+    except: 
+        return None
 
 # --- КЛАВИАТУРЫ ---
 def get_main_kb():
@@ -172,7 +181,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (Быстрые ссылки)!")
+print("БОТ ЗАПУЩЕН (Супер-быстрые ссылки)!")
 
 try:
     longpoll = VkLongPoll(vk_session)
@@ -286,7 +295,11 @@ try:
                             if attach.get('type') == 'photo':
                                 is_photo = True
                                 sizes = attach['photo'].get('sizes', [])
-                                if sizes: links.append(sizes[-1]['url'])
+                                # БЕРЕМ СРЕДНИЙ РАЗМЕР (чтобы не было ошибки 5МБ)
+                                if len(sizes) >= 2:
+                                    links.append(sizes[-2]['url'])
+                                elif sizes:
+                                    links.append(sizes[0]['url'])
                             elif attach.get('type') == 'video':
                                 is_video = True
                                 v_id = attach['video']['id']
@@ -311,7 +324,7 @@ try:
                                                   f"💾 **Как сохранить:**\n1. Нажми на ссылку (откроется в браузере).\n2. Зажми картинку пальцем и выбери «Сохранить изображение».")
                                     send(peer_id, final_text, keyboard=get_main_kb())
                                 else:
-                                    send(peer_id, "⚠️ **Сервер перегружен.** Отправь фото еще раз через минуту.", keyboard=get_main_kb())
+                                    send(peer_id, "⚠️ **Ошибка загрузки.** Попробуй отправить фото еще раз.", keyboard=get_main_kb())
                             else:
                                 send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
                         elif mode == 'multi':
@@ -329,7 +342,7 @@ try:
                                     final_text += "💾 *Зажми картинку в браузере и выбери «Сохранить».*"
                                     send(peer_id, final_text, keyboard=get_main_kb())
                                 else:
-                                    send(peer_id, "⚠️ **Сервер перегружен.** Попробуй позже.", keyboard=get_main_kb())
+                                    send(peer_id, "⚠️ **Ошибка загрузки.** Попробуй позже.", keyboard=get_main_kb())
                             else:
                                 send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
                 except Exception as e: print(e)
