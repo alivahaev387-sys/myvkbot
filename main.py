@@ -67,13 +67,17 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
-# --- ЗАГРУЗКА НА IMGBB (НАДЕЖНО И БЫСТРО) ---
+# --- СУПЕР-ЗАЩИЩЕННАЯ ЗАГРУЗКА (4 ХОСТИНГА + МАСКИРОВКА) ---
 def get_clean_link(vk_image_url):
     try:
-        # Скачиваем фото из ВК (максимум 5 секунд)
-        img_data = requests.get(vk_image_url, timeout=5).content
+        # 1. Скачиваем фото из ВК, притворяясь браузером (чтобы ВК не блокировал)
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        img_data = requests.get(vk_image_url, headers=headers, timeout=10).content
         
-        # Пытаемся загрузить на ImgBB (ждем 10 секунд)
+        if len(img_data) < 1000: # Если скачался мусор вместо фото
+            return None
+
+        # 2. Пытаемся загрузить на ImgBB (ждем 10 секунд)
         try:
             res = requests.post(
                 "https://api.imgbb.com/1/upload",
@@ -81,11 +85,28 @@ def get_clean_link(vk_image_url):
                 files={"image": img_data},
                 timeout=10
             ).json()
-            if res.get("success"):
-                return res["data"]["url"]
-        except Exception as e:
-            print("ImgBB не ответил:", e)
+            if res.get("success"): return res["data"]["url"]
+        except: pass
+            
+        # 3. Если ImgBB упал, летим на Telegraph
+        try:
+            res = requests.post('https://api.telegra.ph/upload', files={'file': ('image.jpg', img_data)}, timeout=10)
+            if res.status_code == 200:
+                return f"https://telegra.ph{res.json()[0]['src']}"
+        except: pass
 
+        # 4. Если и он упал, летим на Catbox
+        try:
+            res = requests.post("https://catbox.moe/user/api.php", data={"reqtype": "fileupload"}, files={"fileToUpload": ("image.jpg", img_data)}, timeout=10)
+            if res.status_code == 200 and "http" in res.text: return res.text.strip()
+        except: pass
+
+        # 5. Последний шанс - Litterbox (временный хостинг)
+        try:
+            res = requests.post("https://litterbox.catbox.moe/resources/internals/api.php", data={"reqtype": "fileupload", "time": "1h"}, files={"fileToUpload": ("image.jpg", img_data)}, timeout=10)
+            if res.status_code == 200 and "http" in res.text: return res.text.strip()
+        except: pass
+                
         return None
     except Exception as e:
         print("Ошибка скачивания фото:", e)
@@ -166,7 +187,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (ImgBB)!")
+print("БОТ ЗАПУЩЕН (Защита от ошибок)!")
 
 try:
     longpoll = VkLongPoll(vk_session)
@@ -280,13 +301,8 @@ try:
                             if attach.get('type') == 'photo':
                                 is_photo = True
                                 sizes = attach['photo'].get('sizes', [])
-                                # Берем уменьшенную копию (размер 'p' или 'q') для быстрой загрузки
-                                for size in sizes:
-                                    if size.get('type') in ['p', 'q', 'r']:
-                                        links.append(size['url'])
-                                        break
-                                else:
-                                    if sizes: links.append(sizes[-1]['url'])
+                                # Берем самый большой размер
+                                if sizes: links.append(sizes[-1]['url'])
                             elif attach.get('type') == 'video':
                                 is_video = True
                                 v_id = attach['video']['id']
@@ -311,7 +327,7 @@ try:
                                                   f"💾 **Как сохранить:**\n1. Нажми на ссылку (откроется в браузере).\n2. Зажми картинку пальцем и выбери «Сохранить изображение».")
                                     send(peer_id, final_text, keyboard=get_main_kb())
                                 else:
-                                    send(peer_id, "⚠️ **Ошибка загрузки.** Попробуй отправить фото еще раз.", keyboard=get_main_kb())
+                                    send(peer_id, "⚠️ **Все сервера перегружены.** Попробуй еще раз через минуту.", keyboard=get_main_kb())
                             else:
                                 send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
                         elif mode == 'multi':
@@ -329,7 +345,7 @@ try:
                                     final_text += "💾 *Зажми картинку в браузере и выбери «Сохранить».*"
                                     send(peer_id, final_text, keyboard=get_main_kb())
                                 else:
-                                    send(peer_id, "⚠️ **Ошибка загрузки.** Попробуй позже.", keyboard=get_main_kb())
+                                    send(peer_id, "⚠️ **Все сервера перегружены.** Попробуй позже.", keyboard=get_main_kb())
                             else:
                                 send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
                 except Exception as e: print(e)
