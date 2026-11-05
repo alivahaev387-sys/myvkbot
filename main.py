@@ -66,38 +66,49 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
-# --- ЗАГРУЗКА НА IMGUR ИЛИ 0X0.ST С СОКРАЩЕНИЕМ ---
-def get_short_link(vk_image_url):
+# --- СОКРАЩАТЕЛЬ ССЫЛОК ---
+def shorten_link(url):
+    try:
+        # Сокращаем через Яндекс (clck.ru) - без ключей и регистрации
+        res = requests.get(f"https://clck.ru/--?url={url}", timeout=5)
+        if res.status_code == 200 and "http" in res.text:
+            return res.text.strip()
+    except: pass
+    
+    try:
+        # Если Яндекс упал, пробуем is.gd
+        res = requests.get(f"https://is.gd/create.php?format=simple&url={url}", timeout=5)
+        if res.status_code == 200 and "http" in res.text:
+            return res.text.strip()
+    except: pass
+    return url # Если сократить не удалось, отдаем как есть
+
+# --- ЗАГРУЗКА И ПОЛУЧЕНИЕ ССЫЛКИ ---
+def get_final_link(vk_image_url):
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
         img_data = requests.get(vk_image_url, headers=headers, timeout=5).content
         
-        # 1. Пытаемся загрузить на Imgur (он чистый и без плашек)
+        # 1. Пытаемся загрузить на Imgur
         try:
             res = requests.post('https://api.imgur.com/3/image', headers={'Authorization': 'Client-ID 546c25a59c58ad7'}, files={'image': img_data}, timeout=10)
             if res.status_code == 200:
-                return res.json()['data']['link']
+                return shorten_link(res.json()['data']['link'])
         except: pass
             
-        # 2. Если Imgur упал, летим на 0x0.st
+        # 2. Пытаемся загрузить на ImgBB
         try:
-            res = requests.post("https://0x0.st", files={"file": img_data}, timeout=10)
-            if res.status_code == 200 and "http" in res.text:
-                return res.text.strip()
+            res = requests.post("https://api.imgbb.com/1/upload", params={"key": "a771230778ab5231d5065a6c92834a11"}, files={"image": img_data}, timeout=10).json()
+            if res.get("success"):
+                return shorten_link(res["data"]["url"])
         except: pass
 
-        # 3. Если всё упало, сокращаем ссылку ВК через TinyURL
-        try:
-            res = requests.get(f"https://tinyurl.com/api-create.php?url={vk_image_url}", timeout=5)
-            if res.status_code == 200:
-                return res.text.strip()
-        except: pass
-                
-        return vk_image_url
+        # Если всё упало, сокращаем оригинальную ссылку ВК
+        return shorten_link(vk_image_url)
     except: 
-        return vk_image_url
+        return shorten_link(vk_image_url)
 
-# --- КЛАВИАТУРЫ ---
+# --- КЛАВИАТУРЫ (ОСТАЛИСЬ КАК БЫЛИ) ---
 def get_main_kb():
     return json.dumps({
         "one_time": False, 
@@ -172,7 +183,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН!")
+print("БОТ ЗАПУЩЕН (Сокращенные ссылки)!")
 
 try:
     longpoll = VkLongPoll(vk_session)
@@ -303,10 +314,10 @@ try:
                                 send(peer_id, f"🎬 **Ссылка:**\n{links[0]}", keyboard=get_main_kb())
                         elif mode == 'one':
                             if is_photo and links:
-                                clean_link = get_short_link(links[0])
+                                short_link = get_final_link(links[0])
                                 add_upload(user_id)
                                 final_text = (f"🌿 **Твоя фотография загружена!**\n\n"
-                                              f"🔗 Ссылка: {clean_link}\n\n"
+                                              f"🔗 Ссылка: {short_link}\n\n"
                                               f"💾 **Как сохранить:**\n1. Нажми на ссылку (откроется в браузере).\n2. Зажми картинку и выбери «Сохранить».")
                                 send(peer_id, final_text, keyboard=get_main_kb())
                             else:
@@ -316,8 +327,8 @@ try:
                                 add_upload(user_id)
                                 final_text = "🌿 **Твои фотографии загружены!**\n\n"
                                 for i, link in enumerate(links, 1):
-                                    clean_link = get_short_link(link)
-                                    final_text += f"🔗 Фото {i}: {clean_link}\n\n"
+                                    short_link = get_final_link(link)
+                                    final_text += f"🔗 Фото {i}: {short_link}\n\n"
                                 final_text += "💾 *Зажми картинку в браузере и выбери «Сохранить».*"
                                 send(peer_id, final_text, keyboard=get_main_kb())
                             else:
