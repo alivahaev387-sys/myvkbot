@@ -11,18 +11,13 @@ GROUP_LINK = "https://vk.com/club242296265"
 vk_session = vk_api.VkApi(token=TOKEN)
 vk = vk_session.get_api()
 waiting_mode = {}
-
-# Режимы ожидания
 waiting_for_support = set() 
 waiting_for_manual_report = set()
 waiting_for_reply = {} 
 waiting_for_manual_reply = {} 
-
-# Списки для репортов и КД
 reports = {} 
 users_in_report = set() 
 
-# --- БАЗА ДАННЫХ ---
 def init_db():
     conn = sqlite3.connect('super_bot.db')
     c = conn.cursor()
@@ -157,7 +152,6 @@ try:
             text = event.text.strip()
             text_lower = text.lower()
 
-            # === ИГРОК В РЕЖИМЕ РУЧНОГО ВОПРОСА ===
             if user_id in waiting_for_manual_report:
                 support_text = f"🆘 **Репорт от** [id{user_id}|Игрок]:\n\n{text}"
                 msg_res = send(ADMIN_ID, support_text, keyboard=get_report_kb())
@@ -168,7 +162,6 @@ try:
                 waiting_for_manual_report.remove(user_id)
                 continue
 
-            # === АДМИН В РЕЖИМЕ РУЧНОГО ОТВЕТА ===
             if user_id == ADMIN_ID and ADMIN_ID in waiting_for_manual_reply:
                 target_user_id = waiting_for_manual_reply[ADMIN_ID]
                 send(target_user_id, f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n{text}", keyboard=get_main_kb())
@@ -177,7 +170,6 @@ try:
                 users_in_report.discard(target_user_id) 
                 continue
 
-            # === АДМИН ВЫБИРАЕТ СПОСОБ ОТВЕТА ===
             if user_id == ADMIN_ID and text_lower == "✍️ ответить на репорт":
                 if reports:
                     last_msg_id = list(reports.keys())[-1]
@@ -186,13 +178,11 @@ try:
                     send(ADMIN_ID, f"✍️ Выбери способ ответа для [id{target_user_id}|Игрока]:", keyboard=get_choice_kb_admin())
                 continue
                 
-            # Админ выбрал "Шаблоны ответов" -> Показываем шаблоны, НЕ отправляем текст
             if user_id == ADMIN_ID and text_lower == "📋 шаблоны ответов":
                 if waiting_for_reply.get(ADMIN_ID):
                     send(ADMIN_ID, "📋 Выбери готовый шаблон для отправки:", keyboard=get_admin_reply_templates_kb())
                 continue
                 
-            # Админ выбрал "Свой ответ" -> Ждем текст
             if user_id == ADMIN_ID and text_lower == "✍️ свой ответ":
                 if waiting_for_reply.get(ADMIN_ID):
                     target_user_id = waiting_for_reply.pop(ADMIN_ID)
@@ -200,7 +190,6 @@ try:
                     send(ADMIN_ID, f"✍️ Напиши свой текст ответа для [id{target_user_id}|Игрока]:", keyboard=get_main_kb())
                 continue
 
-            # === АДМИН ВЫБРАЛ КОНКРЕТНЫЙ ШАБЛОН (ОТПРАВКА) ===
             if user_id == ADMIN_ID and ADMIN_ID in waiting_for_reply:
                 if text_lower in ["✅ исправлено, проверяй", "⏳ скоро починим", "📱 скачай с компа", "🔄 попробуй еще раз"]:
                     target_user_id = waiting_for_reply[ADMIN_ID]
@@ -210,7 +199,6 @@ try:
                     users_in_report.discard(target_user_id) 
                 continue
 
-            # === ИГРОК ВЫБРАЛ ШАБЛОН (ОТПРАВКА) ===
             if user_id in waiting_for_support:
                 support_text = f"🆘 **Репорт от** [id{user_id}|Игрок]:\n\n{text}"
                 msg_res = send(ADMIN_ID, support_text, keyboard=get_report_kb())
@@ -221,7 +209,6 @@ try:
                 waiting_for_support.remove(user_id)
                 continue
 
-            # === СТАТИСТИКА АДМИНА ===
             if text_lower == "стата" and user_id == ADMIN_ID:
                 conn = sqlite3.connect('super_bot.db')
                 c = conn.cursor()
@@ -236,7 +223,6 @@ try:
                 send(peer_id, stats_text)
                 continue
 
-            # === ПРОВЕРКА НА ЧС И ПОДПИСКУ ===
             warns, ban_until, uploads = get_user_data(user_id)
             current_time = int(time.time())
 
@@ -248,7 +234,6 @@ try:
                 send(peer_id, f"🔒 **Доступ ограничен!**\nПодпишись: {GROUP_LINK}")
                 continue
 
-            # === ОБРАБОТКА ФОТО / ВИДЕО ===
             if peer_id in waiting_mode:
                 try:
                     msg_info = vk.messages.getById(message_ids=event.message_id)
@@ -271,47 +256,27 @@ try:
                         
                         mode = waiting_mode[peer_id]
                         
-                        # КРАСИВЫЙ ОТВЕТ ПРИ УСПЕШНОЙ ЗАГРУЗКЕ
                         if mode == 'video':
                             if is_photo and not is_video:
-                                send(peer_id, "❌ **Это не видео!** Пожалуйста, отправь видеофайл.", keyboard=get_main_kb())
+                                send(peer_id, "❌ **Это не видео!**", keyboard=get_main_kb())
                             elif is_video and links:
                                 add_upload(user_id)
-                                final_text = (
-                                    f"🎬 **Твоя ссылка на видео готова!**\n\n"
-                                    f"🔗 Ссылка: {links[0]}\n\n"
-                                    f"💾 **Как сохранить:**\n"
-                                    f"1. Нажми на ссылку.\n"
-                                    f"2. В открывшемся окне нажми «Скачать».\n\n"
-                                    f"👇 *Скопируй ссылку или нажми на неё.*"
-                                )
-                                send(peer_id, final_text, keyboard=get_main_kb())
+                                send(peer_id, f"🎬 **Ссылка:**\n{links[0]}", keyboard=get_main_kb())
                         elif mode == 'one':
                             if is_photo and links:
                                 add_upload(user_id)
-                                final_text = (
-                                    f"🌿 **Твоя фотография загружена!**\n\n"
-                                    f"🔗 Ссылка: {links[0]}\n\n"
-                                    f"💾 **Как сохранить в галерею:**\n"
-                                    f"1. Нажми на ссылку.\n"
-                                    f"2. Когда картинка откроется, **зажми её пальцем** и выбери «Сохранить изображение» (или «Добавить в Фото»).\n\n"
-                                    f"👇 *Скопируй ссылку или нажми на неё.*"
-                                )
+                                final_text = (f"🌿 **Твоя фотография загружена!**\n\n"
+                                              f"🔗 Ссылка: {links[0]}\n\n"
+                                              f"💾 **Как сохранить:**\n1. Нажми на ссылку.\n2. Зажми картинку пальцем и выбери «Сохранить изображение».")
                                 send(peer_id, final_text, keyboard=get_main_kb())
                             else:
-                                send(peer_id, "❌ Отправь именно фото!", keyboard=get_main_kb())
+                                send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
                         elif mode == 'multi':
                             if is_photo and links:
                                 add_upload(user_id)
                                 final_text = "🌿 **Твои фотографии загружены!**\n\n"
                                 for i, link in enumerate(links, 1):
                                     final_text += f"🔗 Фото {i}: {link}\n\n"
-                                final_text += (
-                                    f"💾 **Как сохранить:**\n"
-                                    f"1. Нажми на нужную ссылку.\n"
-                                    f"2. Зажми картинку в браузере и выбери «Сохранить».\n\n"
-                                    f"👇 *Скопируй ссылки или нажми на них.*"
-                                )
                                 send(peer_id, final_text, keyboard=get_main_kb())
                             else:
                                 send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
@@ -319,20 +284,18 @@ try:
                 if peer_id in waiting_mode: del waiting_mode[peer_id]
                 continue
 
-            # === ЛОГИКА КНОПОК ===
             if "видео" in text_lower:
                 waiting_mode[peer_id] = 'video'
-                send(peer_id, "🎬 **Отправь мне видео, и я сгенерирую на него ссылку!**", keyboard=get_main_kb())
+                send(peer_id, "🎬 **Отправь мне видео!**", keyboard=get_main_kb())
             elif "несколько" in text_lower:
                 waiting_mode[peer_id] = 'multi'
-                send(peer_id, "📸 **Отправь мне несколько фото, и я выдам ссылки на каждое!**", keyboard=get_main_kb())
+                send(peer_id, "📸 **Отправь мне несколько фото!**", keyboard=get_main_kb())
             elif "загрузить фото" in text_lower or "создать ссылку" in text_lower:
                 waiting_mode[peer_id] = 'one'
                 send(peer_id, "📸 **Отправь мне фотографию, и я сделаю из неё прямую ссылку!**", keyboard=get_main_kb())
             elif "статистика" in text_lower:
-                send(peer_id, f"📊 **Твоя статистика:**\n\n📤 Загружено файлов: {uploads}", keyboard=get_main_kb())
+                send(peer_id, f"📊 **Загружено:** {uploads}", keyboard=get_main_kb())
             
-            # --- ПОМОЩЬ И СВЯЗЬ ---
             elif "помощь" in text_lower:
                 help_text = "📖 Как пользоваться ботом:\n1. Жми 'Загрузить фото'.\n2. Отправь картинку.\n3. Получи ссылку."
                 send(peer_id, help_text, keyboard=get_help_kb())
