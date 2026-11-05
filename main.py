@@ -67,27 +67,13 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
-# --- ЗАГРУЗКА НА PIXHOST (ДОВЕРЕННЫЙ САЙТ БЕЗ ПЛАШЕК) ---
+# --- ЗАГРУЗКА НА IMGBB (НАДЕЖНО И БЫСТРО) ---
 def get_clean_link(vk_image_url):
     try:
-        # Скачиваем фото из ВК (средний размер для скорости)
+        # Скачиваем фото из ВК (максимум 5 секунд)
         img_data = requests.get(vk_image_url, timeout=5).content
         
-        # 1. Пытаемся загрузить на Pixhost
-        try:
-            res = requests.post(
-                "https://pixhost.to/json/rr",
-                data={"content_type": "0"},
-                files={"img": ("image.jpg", img_data)},
-                timeout=10
-            ).json()
-            if "show_url" in res:
-                # Возвращаем прямую ссылку на картинку
-                return res["show_url"].replace("https://pixhost.to/show/", "https://img1.pixhost.to/images/") + ".jpg"
-        except Exception as e:
-            print("Pixhost не ответил:", e)
-
-        # 2. Если Pixhost упал, летим на ImgBB
+        # Пытаемся загрузить на ImgBB (ждем 10 секунд)
         try:
             res = requests.post(
                 "https://api.imgbb.com/1/upload",
@@ -180,7 +166,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (Pixhost)!")
+print("БОТ ЗАПУЩЕН (ImgBB)!")
 
 try:
     longpoll = VkLongPoll(vk_session)
@@ -294,11 +280,13 @@ try:
                             if attach.get('type') == 'photo':
                                 is_photo = True
                                 sizes = attach['photo'].get('sizes', [])
-                                # Берем средний размер для скорости
-                                if len(sizes) >= 2:
-                                    links.append(sizes[-2]['url'])
-                                elif sizes:
-                                    links.append(sizes[0]['url'])
+                                # Берем уменьшенную копию (размер 'p' или 'q') для быстрой загрузки
+                                for size in sizes:
+                                    if size.get('type') in ['p', 'q', 'r']:
+                                        links.append(size['url'])
+                                        break
+                                else:
+                                    if sizes: links.append(sizes[-1]['url'])
                             elif attach.get('type') == 'video':
                                 is_video = True
                                 v_id = attach['video']['id']
