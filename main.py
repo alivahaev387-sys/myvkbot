@@ -2,12 +2,11 @@ import vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType
 import json, random, sqlite3, time, requests
 
-# ===== НОВЫЙ ТОКЕН =====
+# ===== ТОКЕН =====
 TOKEN = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMbjdYBmf-QH6dwf-ZL4dMYkKMEEiviqU5GPmM5kaG4Xt535Hb1ApvImzJkk_cq-Q7ZxOQYVPbnULj0Fg6U0yDNSPgLwANkGKX348kTlENY6s99NOBeUO-e486DAX-0XtbAa3tmQdMYjF2GLxluGvHrhFHhvr5YCuDXfYxTgw5cYo"
 ADMIN_ID = 200005093141
 GROUP_ID = 242296265 
 GROUP_LINK = "https://vk.com/club242296265"
-IMGBB_API_KEY = "a771230778ab5231d5065a6c92834a11" 
 
 vk_session = vk_api.VkApi(token=TOKEN)
 vk = vk_session.get_api()
@@ -67,44 +66,25 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
-# --- ФУНКЦИЯ ЗАГРУЗКИ (3 РЕЗЕРВНЫХ ХОСТИНГА БЕЗ VK) ---
+# --- ФУНКЦИЯ ЗАГРУЗКИ НА TELEGRAPH (ДОВЕРЕННЫЙ ХОСТИНГ) ---
 def get_clean_link(vk_image_url):
     try:
-        img_data = requests.get(vk_image_url, timeout=10).content
+        img_data = requests.get(vk_image_url, timeout=15).content
         
-        # 1. Postimages (самый стабильный для РФ)
-        try:
-            res = requests.post(
-                "https://postimages.org/json/rr",
-                files={"file": ("image.jpg", img_data)},
-                data={"optsize": "0", "expire": "0"},
-                timeout=15
-            ).json()
-            if "url" in res: return res["url"]
-        except: pass
-
-        # 2. ImgBB
-        try:
-            res = requests.post(
-                "https://api.imgbb.com/1/upload",
-                params={"key": IMGBB_API_KEY},
-                files={"image": img_data},
-                timeout=15
-            ).json()
-            if res.get("success"): return res["data"]["url"]
-        except: pass
-
-        # 3. Catbox
-        try:
-            res = requests.post(
-                "https://catbox.moe/user/api.php",
-                data={"reqtype": "fileupload"},
-                files={"fileToUpload": ("image.jpg", img_data)},
-                timeout=15
-            )
-            if res.status_code == 200 and "http" in res.text:
-                return res.text.strip()
-        except: pass
+        # Делаем 3 попытки загрузить на Telegraph
+        for attempt in range(3):
+            try:
+                response = requests.post(
+                    'https://api.telegra.ph/upload', 
+                    files={'file': ('image.jpg', img_data)}, 
+                    timeout=20
+                )
+                if response.status_code == 200:
+                    res_json = response.json()
+                    if isinstance(res_json, list) and 'src' in res_json[0]:
+                        return f"https://telegra.ph{res_json[0]['src']}"
+            except:
+                time.sleep(2) # Ждем 2 секунды перед новой попыткой
                 
         return None
     except: 
@@ -185,7 +165,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (Чистые ссылки)!")
+print("БОТ ЗАПУЩЕН (Безопасные ссылки)!")
 
 try:
     longpoll = VkLongPoll(vk_session)
@@ -388,4 +368,3 @@ try:
 
 except Exception as e:
     print("КРИТИЧЕСКАЯ ОШИБКА:", e)
-    
