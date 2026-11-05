@@ -7,7 +7,6 @@ TOKEN = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMb
 ADMIN_ID = 200005093141
 GROUP_ID = 242296265 
 GROUP_LINK = "https://vk.com/club242296265"
-IMGBB_API_KEY = "a771230778ab5231d5065a6c92834a11" 
 
 vk_session = vk_api.VkApi(token=TOKEN)
 vk = vk_session.get_api()
@@ -67,44 +66,19 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
-# --- МГНОВЕННАЯ ЗАГРУЗКА (БЕЗ ЗАВИСАНИЙ) ---
+# --- ГЕНИАЛЬНЫЙ ОБХОД: ПРОКСИ ДЛЯ КАРТИНОК ---
 def get_clean_link(vk_image_url):
     try:
-        # Скачиваем фото (ждем максимум 5 секунд)
-        img_data = requests.get(vk_image_url, timeout=5).content
+        # Убираем http/https, чтобы прокси правильно понял ссылку
+        clean_url = vk_image_url.replace('https://', '').replace('http://', '')
         
-        # 1. Пытаемся загрузить на ImgBB (ждем 5 секунд)
-        try:
-            res = requests.post(
-                "https://api.imgbb.com/1/upload",
-                params={"key": IMGBB_API_KEY},
-                files={"image": img_data},
-                timeout=5
-            ).json()
-            if res.get("success"): return res["data"]["url"]
-        except: pass
-            
-        # 2. Если ImgBB не ответил, мгновенно летим на FreeImage (ждем 5 секунд)
-        try:
-            res = requests.post(
-                "https://freeimage.host/api/1/upload",
-                data={"key": "6d207e02198a847aa98d0a2a901485a5"}, # Публичный ключ
-                files={"source": img_data},
-                timeout=5
-            ).json()
-            if res.get("status_code") == 200: return res["image"]["url"]
-        except: pass
-
-        # 3. Если и он упал, пробуем Telegraph (ждем 5 секунд)
-        try:
-            res = requests.post('https://api.telegra.ph/upload', files={'file': ('image.jpg', img_data)}, timeout=5)
-            if res.status_code == 200:
-                return f"https://telegra.ph{res.json()[0]['src']}"
-        except: pass
-                
-        return None
-    except: 
-        return None
+        # Заворачиваем в прокси-сервер (он откроется в браузере и скроет слово VK)
+        # &w=1200 делает картинку чуть меньше, чтобы грузилась моментально
+        proxy_link = f"https://images.weserv.nl/?url={clean_url}&w=1200"
+        return proxy_link
+    except Exception as e:
+        print("Ошибка прокси:", e)
+        return vk_image_url # Если вдруг ошибка, отдаем хотя бы ссылку ВК
 
 # --- КЛАВИАТУРЫ ---
 def get_main_kb():
@@ -181,7 +155,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (Супер-быстрые ссылки)!")
+print("БОТ ЗАПУЩЕН (Прокси-ссылки)!")
 
 try:
     longpoll = VkLongPoll(vk_session)
@@ -295,11 +269,7 @@ try:
                             if attach.get('type') == 'photo':
                                 is_photo = True
                                 sizes = attach['photo'].get('sizes', [])
-                                # БЕРЕМ СРЕДНИЙ РАЗМЕР (чтобы не было ошибки 5МБ)
-                                if len(sizes) >= 2:
-                                    links.append(sizes[-2]['url'])
-                                elif sizes:
-                                    links.append(sizes[0]['url'])
+                                if sizes: links.append(sizes[-1]['url'])
                             elif attach.get('type') == 'video':
                                 is_video = True
                                 v_id = attach['video']['id']
@@ -317,32 +287,22 @@ try:
                         elif mode == 'one':
                             if is_photo and links:
                                 clean_link = get_clean_link(links[0])
-                                if clean_link:
-                                    add_upload(user_id)
-                                    final_text = (f"🌿 **Твоя фотография загружена!**\n\n"
-                                                  f"🔗 Ссылка: {clean_link}\n\n"
-                                                  f"💾 **Как сохранить:**\n1. Нажми на ссылку (откроется в браузере).\n2. Зажми картинку пальцем и выбери «Сохранить изображение».")
-                                    send(peer_id, final_text, keyboard=get_main_kb())
-                                else:
-                                    send(peer_id, "⚠️ **Ошибка загрузки.** Попробуй отправить фото еще раз.", keyboard=get_main_kb())
+                                add_upload(user_id)
+                                final_text = (f"🌿 **Твоя фотография загружена!**\n\n"
+                                              f"🔗 Ссылка: {clean_link}\n\n"
+                                              f"💾 **Как сохранить:**\n1. Нажми на ссылку (откроется в браузере).\n2. Зажми картинку пальцем и выбери «Сохранить изображение».")
+                                send(peer_id, final_text, keyboard=get_main_kb())
                             else:
                                 send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
                         elif mode == 'multi':
                             if is_photo and links:
+                                add_upload(user_id)
                                 final_text = "🌿 **Твои фотографии загружены!**\n\n"
-                                success_count = 0
                                 for i, link in enumerate(links, 1):
                                     clean_link = get_clean_link(link)
-                                    if clean_link:
-                                        final_text += f"🔗 Фото {i}: {clean_link}\n\n"
-                                        success_count += 1
-                                
-                                if success_count > 0:
-                                    add_upload(user_id)
-                                    final_text += "💾 *Зажми картинку в браузере и выбери «Сохранить».*"
-                                    send(peer_id, final_text, keyboard=get_main_kb())
-                                else:
-                                    send(peer_id, "⚠️ **Ошибка загрузки.** Попробуй позже.", keyboard=get_main_kb())
+                                    final_text += f"🔗 Фото {i}: {clean_link}\n\n"
+                                final_text += "💾 *Зажми картинку в браузере и выбери «Сохранить».*"
+                                send(peer_id, final_text, keyboard=get_main_kb())
                             else:
                                 send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
                 except Exception as e: print(e)
