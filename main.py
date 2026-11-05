@@ -67,37 +67,35 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
-# --- ЗАГРУЗКА (IMGUR / IMGBB) С ТАЙМАУТАМИ ---
+# --- НОВАЯ ФУНКЦИЯ БЫСТРОЙ ЗАГРУЗКИ ---
 def get_clean_link(vk_image_url):
+    # 1. Пытаемся загрузить напрямую через Image2URL (не требует ключей, принимает URL)
     try:
-        # Скачиваем фото из ВК (максимум 10 секунд)
-        img_data = requests.get(vk_image_url, timeout=10).content
-        
-        # 1. Пытаемся загрузить на Imgur (максимум 10 секунд)
-        try:
-            headers = {'Authorization': 'Client-ID 546c25a59c58ad7'} # Публичный ключ для тестов
-            res = requests.post('https://api.imgur.com/3/image', headers=headers, files={'image': img_data}, timeout=10)
-            if res.status_code == 200:
-                return res.json()['data']['link']
-        except: pass
-            
-        # 2. Если Imgur не ответил, пробуем ImgBB (максимум 10 секунд)
-        try:
-            res = requests.post(
-                "https://api.imgbb.com/1/upload",
-                params={"key": IMGBB_API_KEY},
-                files={"image": img_data},
-                timeout=10
-            ).json()
-            if res.get("success"):
-                return res["data"]["url"]
-        except: pass
-
-        # Если оба сайта не ответили за 20 секунд, возвращаем None
-        return None
+        res = requests.post(
+            "https://www.image2url.com/api/upload",
+            json={"url": vk_image_url},
+            timeout=5 # Ждем максимум 5 секунд
+        ).json()
+        if "url" in res:
+            return res["url"]
     except Exception as e:
-        print("Ошибка загрузки:", e)
-        return None
+        print("Image2URL не ответил:", e)
+
+    # 2. Если Image2URL не справился, пробуем ImgBB
+    try:
+        res = requests.post(
+            "https://api.imgbb.com/1/upload",
+            params={"key": IMGBB_API_KEY},
+            data={"image": vk_image_url}, # Передаем URL напрямую
+            timeout=5
+        ).json()
+        if res.get("success"):
+            return res["data"]["url"]
+    except Exception as e:
+        print("ImgBB не ответил:", e)
+
+    # Если оба не справились, возвращаем None
+    return None
 
 # --- КЛАВИАТУРЫ ---
 def get_main_kb():
@@ -174,7 +172,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (Imgur)!")
+print("БОТ ЗАПУЩЕН (Быстрые ссылки)!")
 
 try:
     longpoll = VkLongPoll(vk_session)
