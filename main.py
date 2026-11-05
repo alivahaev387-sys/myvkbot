@@ -1,8 +1,8 @@
 import vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType
-import json, random, sqlite3, time
+import json, random, sqlite3, time, requests
 
-# ===== ТВОЙ ТОКЕН =====
+# ===== ТОКЕН =====
 TOKEN = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMbjdYBmf-QH6dwf-ZL4dMYkKMEEiviqU5GPmM5kaG4Xt535Hb1ApvImzJkk_cq-Q7ZxOQYVPbnULj0Fg6U0yDNSPgLwANkGKX348kTlENY6s99NOBeUO-e486DAX-0XtbAa3tmQdMYjF2GLxluGvHrhFHhvr5YCuDXfYxTgw5cYo"
 ADMIN_ID = 200005093141
 GROUP_ID = 242296265 
@@ -65,6 +65,37 @@ def send(peer_id, text, keyboard=None):
     except Exception as e:
         print("Ошибка отправки:", e)
         return None
+
+# --- ЗАГРУЗКА НА IMGUR ИЛИ 0X0.ST С СОКРАЩЕНИЕМ ---
+def get_short_link(vk_image_url):
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        img_data = requests.get(vk_image_url, headers=headers, timeout=5).content
+        
+        # 1. Пытаемся загрузить на Imgur (он чистый и без плашек)
+        try:
+            res = requests.post('https://api.imgur.com/3/image', headers={'Authorization': 'Client-ID 546c25a59c58ad7'}, files={'image': img_data}, timeout=10)
+            if res.status_code == 200:
+                return res.json()['data']['link']
+        except: pass
+            
+        # 2. Если Imgur упал, летим на 0x0.st
+        try:
+            res = requests.post("https://0x0.st", files={"file": img_data}, timeout=10)
+            if res.status_code == 200 and "http" in res.text:
+                return res.text.strip()
+        except: pass
+
+        # 3. Если всё упало, сокращаем ссылку ВК через TinyURL
+        try:
+            res = requests.get(f"https://tinyurl.com/api-create.php?url={vk_image_url}", timeout=5)
+            if res.status_code == 200:
+                return res.text.strip()
+        except: pass
+                
+        return vk_image_url
+    except: 
+        return vk_image_url
 
 # --- КЛАВИАТУРЫ ---
 def get_main_kb():
@@ -141,7 +172,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (Стабильная версия)!")
+print("БОТ ЗАПУЩЕН!")
 
 try:
     longpoll = VkLongPoll(vk_session)
@@ -272,10 +303,11 @@ try:
                                 send(peer_id, f"🎬 **Ссылка:**\n{links[0]}", keyboard=get_main_kb())
                         elif mode == 'one':
                             if is_photo and links:
+                                clean_link = get_short_link(links[0])
                                 add_upload(user_id)
                                 final_text = (f"🌿 **Твоя фотография загружена!**\n\n"
-                                              f"🔗 Ссылка: {links[0]}\n\n"
-                                              f"💾 **Как сохранить:**\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить».")
+                                              f"🔗 Ссылка: {clean_link}\n\n"
+                                              f"💾 **Как сохранить:**\n1. Нажми на ссылку (откроется в браузере).\n2. Зажми картинку и выбери «Сохранить».")
                                 send(peer_id, final_text, keyboard=get_main_kb())
                             else:
                                 send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
@@ -284,8 +316,9 @@ try:
                                 add_upload(user_id)
                                 final_text = "🌿 **Твои фотографии загружены!**\n\n"
                                 for i, link in enumerate(links, 1):
-                                    final_text += f"🔗 Фото {i}: {link}\n\n"
-                                final_text += "💾 *Скопируй ссылки и открой в браузере.*"
+                                    clean_link = get_short_link(link)
+                                    final_text += f"🔗 Фото {i}: {clean_link}\n\n"
+                                final_text += "💾 *Зажми картинку в браузере и выбери «Сохранить».*"
                                 send(peer_id, final_text, keyboard=get_main_kb())
                             else:
                                 send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
