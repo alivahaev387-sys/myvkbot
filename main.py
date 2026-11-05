@@ -1,6 +1,6 @@
 import vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType
-import json, random, sqlite3, time, requests
+import json, random, sqlite3, time
 
 # ===== ТОКЕН =====
 TOKEN = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMbjdYBmf-QH6dwf-ZL4dMYkKMEEiviqU5GPmM5kaG4Xt535Hb1ApvImzJkk_cq-Q7ZxOQYVPbnULj0Fg6U0yDNSPgLwANkGKX348kTlENY6s99NOBeUO-e486DAX-0XtbAa3tmQdMYjF2GLxluGvHrhFHhvr5YCuDXfYxTgw5cYo"
@@ -66,37 +66,14 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
-# --- СОКРАЩЕНИЕ ССЫЛКИ ЧЕРЕЗ ВК (БЕЗ САЙТОВ) ---
-def shorten_vk_link(long_url):
+# --- СОКРАЩЕНИЕ ССЫЛКИ ЧЕРЕЗ ВК ---
+def shorten_link(url):
     try:
-        # Используем официальный метод ВК для сокращения ссылок
-        res = vk.utils.getShortLink(url=long_url)
+        res = vk.utils.getShortLink(url=url)
         if 'short_url' in res:
             return res['short_url']
-    except Exception as e:
-        print("Ошибка сокращения ВК:", e)
-    return long_url
-
-# --- ЗАГРУЗКА НА TELEGRAPH (БЕЗ КЛЮЧЕЙ) ---
-def get_final_link(vk_image_url):
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        img_data = requests.get(vk_image_url, headers=headers, timeout=10).content
-        
-        # Загружаем на Telegraph
-        try:
-            res = requests.post('https://api.telegra.ph/upload', files={'file': ('image.jpg', img_data)}, timeout=15)
-            if res.status_code == 200:
-                tg_url = f"https://telegra.ph{res.json()[0]['src']}"
-                # Сокращаем полученную ссылку через ВК
-                return shorten_vk_link(tg_url)
-        except Exception as e:
-            print("Telegraph не ответил:", e)
-
-        return None
-    except Exception as e: 
-        print("Ошибка скачивания фото:", e)
-        return None
+    except: pass
+    return url
 
 # --- КЛАВИАТУРЫ ---
 def get_main_kb():
@@ -173,7 +150,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (Сокращение через VK API)!")
+print("БОТ ЗАПУЩЕН (Старая версия + Сокращение ссылок)!")
 
 try:
     longpoll = VkLongPoll(vk_session)
@@ -184,21 +161,29 @@ try:
             text = event.text.strip()
             text_lower = text.lower()
 
+            # Если написали "Начать"
             if text_lower == "начать" or text_lower == "start":
                 send(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
                 continue
 
-            # РЕПОРТЫ И ОТВЕТЫ АДМИНА
+            # === ИСПРАВЛЕНИЕ БАГА С "НАЗАД" В РЕПОРТАХ ===
             if user_id in waiting_for_manual_report:
-                support_text = f"🆘 **Репорт от** [id{user_id}|Игрок]:\n\n{text}"
-                msg_res = send(ADMIN_ID, support_text, keyboard=get_report_kb())
-                if msg_res: 
-                    reports[msg_res] = user_id
-                    users_in_report.add(user_id) 
-                send(user_id, "✅ Твой репорт отправлен! Ожидай ответа.", keyboard=get_main_kb())
-                waiting_for_manual_report.remove(user_id)
-                continue
+                if text_lower == "⬅️ назад" or text_lower == "назад":
+                    waiting_for_manual_report.remove(user_id)
+                    send(peer_id, "Вы вернулись в главное меню.", keyboard=get_main_kb())
+                    continue
+                else:
+                    # Отправляем репорт админу
+                    support_text = f"🆘 **Репорт от** [id{user_id}|Игрок]:\n\n{text}"
+                    msg_res = send(ADMIN_ID, support_text, keyboard=get_report_kb())
+                    if msg_res: 
+                        reports[msg_res] = user_id
+                        users_in_report.add(user_id) 
+                    send(user_id, "✅ Твой репорт отправлен! Ожидай ответа.", keyboard=get_main_kb())
+                    waiting_for_manual_report.remove(user_id)
+                    continue
 
+            # ОТВЕТ АДМИНА НА РЕПОРТ
             if user_id == ADMIN_ID and ADMIN_ID in waiting_for_manual_reply:
                 target_user_id = waiting_for_manual_reply[ADMIN_ID]
                 send(target_user_id, f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n{text}", keyboard=get_main_kb())
@@ -237,6 +222,12 @@ try:
                 continue
 
             if user_id in waiting_for_support:
+                if text_lower == "⬅️ назад" or text_lower == "назад":
+                    waiting_for_support.remove(user_id)
+                    send(peer_id, "Вы вернулись в главное меню.", keyboard=get_main_kb())
+                    continue
+                
+                # Если это шаблон
                 support_text = f"🆘 **Репорт от** [id{user_id}|Игрок]:\n\n{text}"
                 msg_res = send(ADMIN_ID, support_text, keyboard=get_report_kb())
                 if msg_res: 
@@ -287,16 +278,8 @@ try:
                             if attach.get('type') == 'photo':
                                 is_photo = True
                                 sizes = attach['photo'].get('sizes', [])
-                                # Берем размер 'x' (~604px) для быстрой загрузки
-                                best_url = None
-                                for size in sizes:
-                                    if size.get('type') == 'x':
-                                        best_url = size['url']
-                                        break
-                                if not best_url and sizes:
-                                    best_url = sizes[-1]['url'] # Если нет 'x', берем самый большой
-                                if best_url:
-                                    links.append(best_url)
+                                # Берем самый большой размер для качества
+                                if sizes: links.append(sizes[-1]['url'])
                             elif attach.get('type') == 'video':
                                 is_video = True
                                 v_id = attach['video']['id']
@@ -310,36 +293,27 @@ try:
                                 send(peer_id, "❌ **Это не видео!**", keyboard=get_main_kb())
                             elif is_video and links:
                                 add_upload(user_id)
-                                send(peer_id, f"🎬 **Ссылка:**\n{links[0]}", keyboard=get_main_kb())
+                                short_vk = shorten_link(links[0])
+                                send(peer_id, f"🎬 **Ссылка:**\n{short_vk}", keyboard=get_main_kb())
                         elif mode == 'one':
                             if is_photo and links:
-                                short_link = get_final_link(links[0])
-                                if short_link:
-                                    add_upload(user_id)
-                                    final_text = (f"🌿 **Твоя фотография загружена!**\n\n"
-                                                  f"🔗 Ссылка: {short_link}\n\n"
-                                                  f"💾 **Как сохранить:**\n1. Нажми на ссылку.\n2. Если открылось приложение ВК, нажми на 3 точки и выбери «Открыть в Safari».\n3. Зажми картинку и выбери «Сохранить».")
-                                    send(peer_id, final_text, keyboard=get_main_kb())
-                                else:
-                                    send(peer_id, "⚠️ **Ошибка загрузки.** Попробуй отправить фото еще раз.", keyboard=get_main_kb())
+                                add_upload(user_id)
+                                short_vk = shorten_link(links[0])
+                                final_text = (f"🌿 **Твоя фотография загружена!**\n\n"
+                                              f"🔗 Ссылка: {short_vk}\n\n"
+                                              f"💾 **Как сохранить:**\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить».")
+                                send(peer_id, final_text, keyboard=get_main_kb())
                             else:
                                 send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
                         elif mode == 'multi':
                             if is_photo and links:
+                                add_upload(user_id)
                                 final_text = "🌿 **Твои фотографии загружены!**\n\n"
-                                success_count = 0
                                 for i, link in enumerate(links, 1):
-                                    short_link = get_final_link(link)
-                                    if short_link:
-                                        final_text += f"🔗 Фото {i}: {short_link}\n\n"
-                                        success_count += 1
-                                
-                                if success_count > 0:
-                                    add_upload(user_id)
-                                    final_text += "💾 *Зажми картинку в браузере и выбери «Сохранить».*"
-                                    send(peer_id, final_text, keyboard=get_main_kb())
-                                else:
-                                    send(peer_id, "⚠️ **Ошибка загрузки.** Попробуй позже.", keyboard=get_main_kb())
+                                    short_vk = shorten_link(link)
+                                    final_text += f"🔗 Фото {i}: {short_vk}\n\n"
+                                final_text += "💾 *Скопируй ссылки и открой в браузере.*"
+                                send(peer_id, final_text, keyboard=get_main_kb())
                             else:
                                 send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
                 except Exception as e: print(e)
@@ -374,11 +348,11 @@ try:
                 waiting_for_support.add(user_id)
                 
             elif "свой вопрос" in text_lower:
-                send(peer_id, "✍️ **Напишите вашу проблему одним сообщением:**", keyboard=get_main_kb())
+                send(peer_id, "✍️ **Напишите вашу проблему одним сообщением (или нажмите 'Назад'):**", keyboard=get_main_kb())
                 waiting_for_manual_report.add(user_id)
                 
             elif "назад" in text_lower:
-                send(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
+                send(peer_id, "Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
                 
             else:
                 send(peer_id, "Выбери действие на кнопках 👇", keyboard=get_main_kb())
