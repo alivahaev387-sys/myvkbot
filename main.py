@@ -1,6 +1,6 @@
 import vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType
-import json, random, sqlite3, time
+import json, random
 
 # ===== ТОКЕН =====
 TOKEN = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMbjdYBmf-QH6dwf-ZL4dMYkKMEEiviqU5GPmM5kaG4Xt535Hb1ApvImzJkk_cq-Q7ZxOQYVPbnULj0Fg6U0yDNSPgLwANkGKX348kTlENY6s99NOBeUO-e486DAX-0XtbAa3tmQdMYjF2GLxluGvHrhFHhvr5YCuDXfYxTgw5cYo"
@@ -18,6 +18,7 @@ waiting_for_manual_reply = {}
 reports = {} 
 users_in_report = set() 
 
+# --- БАЗА ДАННЫХ ---
 def init_db():
     conn = sqlite3.connect('super_bot.db')
     c = conn.cursor()
@@ -65,15 +66,6 @@ def send(peer_id, text, keyboard=None):
     except Exception as e:
         print("Ошибка отправки:", e)
         return None
-
-# --- СОКРАЩЕНИЕ ССЫЛКИ ЧЕРЕЗ ВК ---
-def shorten_link(url):
-    try:
-        res = vk.utils.getShortLink(url=url)
-        if 'short_url' in res:
-            return res['short_url']
-    except: pass
-    return url
 
 # --- КЛАВИАТУРЫ ---
 def get_main_kb():
@@ -150,7 +142,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (Старая версия + Сокращение ссылок)!")
+print("БОТ ЗАПУЩЕН (Стабильная версия без загрузок)!")
 
 try:
     longpoll = VkLongPoll(vk_session)
@@ -278,7 +270,6 @@ try:
                             if attach.get('type') == 'photo':
                                 is_photo = True
                                 sizes = attach['photo'].get('sizes', [])
-                                # Берем самый большой размер для качества
                                 if sizes: links.append(sizes[-1]['url'])
                             elif attach.get('type') == 'video':
                                 is_video = True
@@ -293,14 +284,12 @@ try:
                                 send(peer_id, "❌ **Это не видео!**", keyboard=get_main_kb())
                             elif is_video and links:
                                 add_upload(user_id)
-                                short_vk = shorten_link(links[0])
-                                send(peer_id, f"🎬 **Ссылка:**\n{short_vk}", keyboard=get_main_kb())
+                                send(peer_id, f"🎬 **Ссылка:**\n{links[0]}", keyboard=get_main_kb())
                         elif mode == 'one':
                             if is_photo and links:
                                 add_upload(user_id)
-                                short_vk = shorten_link(links[0])
                                 final_text = (f"🌿 **Твоя фотография загружена!**\n\n"
-                                              f"🔗 Ссылка: {short_vk}\n\n"
+                                              f"🔗 Ссылка: {links[0]}\n\n"
                                               f"💾 **Как сохранить:**\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить».")
                                 send(peer_id, final_text, keyboard=get_main_kb())
                             else:
@@ -310,8 +299,7 @@ try:
                                 add_upload(user_id)
                                 final_text = "🌿 **Твои фотографии загружены!**\n\n"
                                 for i, link in enumerate(links, 1):
-                                    short_vk = shorten_link(link)
-                                    final_text += f"🔗 Фото {i}: {short_vk}\n\n"
+                                    final_text += f"🔗 Фото {i}: {link}\n\n"
                                 final_text += "💾 *Скопируй ссылки и открой в браузере.*"
                                 send(peer_id, final_text, keyboard=get_main_kb())
                             else:
