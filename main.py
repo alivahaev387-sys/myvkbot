@@ -7,8 +7,6 @@ TOKEN = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMb
 ADMIN_ID = 200005093141
 GROUP_ID = 242296265 
 GROUP_LINK = "https://vk.com/club242296265"
-
-# Ключ для ImgBB
 IMGBB_API_KEY = "a771230778ab5231d5065a6c92834a11" 
 
 vk_session = vk_api.VkApi(token=TOKEN)
@@ -69,38 +67,48 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
-# --- ФУНКЦИЯ ЗАГРУЗКИ НА ЧИСТЫЙ ХОСТИНГ (ImgBB / Catbox) ---
+# --- ФУНКЦИЯ ЗАГРУЗКИ (3 РЕЗЕРВНЫХ ХОСТИНГА БЕЗ VK) ---
 def get_clean_link(vk_image_url):
     try:
-        # 1. Скачиваем фото из ВК
-        img_data = requests.get(vk_image_url, timeout=15).content
+        img_data = requests.get(vk_image_url, timeout=10).content
         
-        # 2. Пытаемся загрузить на ImgBB
+        # 1. Postimages (самый стабильный для РФ)
+        try:
+            res = requests.post(
+                "https://postimages.org/json/rr",
+                files={"file": ("image.jpg", img_data)},
+                data={"optsize": "0", "expire": "0"},
+                timeout=15
+            ).json()
+            if "url" in res: return res["url"]
+        except: pass
+
+        # 2. ImgBB
         try:
             res = requests.post(
                 "https://api.imgbb.com/1/upload",
                 params={"key": IMGBB_API_KEY},
                 files={"image": img_data},
-                timeout=20
+                timeout=15
             ).json()
-            if res.get("success"):
-                return res["data"]["url"]
+            if res.get("success"): return res["data"]["url"]
         except: pass
-            
-        # 3. Если ImgBB не сработал, пробуем Catbox
+
+        # 3. Catbox
         try:
-            files = {'fileToUpload': ('image.jpg', img_data)}
-            data = {'reqtype': 'fileupload'}
-            response = requests.post("https://catbox.moe/user/api.php", data=data, files=files, timeout=25)
-            if response.status_code == 200 and "http" in response.text:
-                return response.text.strip()
+            res = requests.post(
+                "https://catbox.moe/user/api.php",
+                data={"reqtype": "fileupload"},
+                files={"fileToUpload": ("image.jpg", img_data)},
+                timeout=15
+            )
+            if res.status_code == 200 and "http" in res.text:
+                return res.text.strip()
         except: pass
                 
-        # Если ничего не сработало, возвращаем оригинальную ссылку ВК
-        return vk_image_url
-    except Exception as e:
-        print("Ошибка хостинга:", e)
-        return vk_image_url
+        return None
+    except: 
+        return None
 
 # --- КЛАВИАТУРЫ ---
 def get_main_kb():
@@ -192,6 +200,7 @@ try:
                 send(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
                 continue
 
+            # РЕПОРТЫ И ОТВЕТЫ АДМИНА
             if user_id in waiting_for_manual_report:
                 support_text = f"🆘 **Репорт от** [id{user_id}|Игрок]:\n\n{text}"
                 msg_res = send(ADMIN_ID, support_text, keyboard=get_report_kb())
@@ -220,14 +229,14 @@ try:
                 
             if user_id == ADMIN_ID and text_lower == "📋 шаблоны ответов":
                 if waiting_for_reply.get(ADMIN_ID):
-                    send(ADMIN_ID, "📋 Выбери готовый шаблон для отправки:", keyboard=get_admin_reply_templates_kb())
+                    send(ADMIN_ID, "📋 Выбери готовый шаблон:", keyboard=get_admin_reply_templates_kb())
                 continue
                 
             if user_id == ADMIN_ID and text_lower == "✍️ свой ответ":
                 if waiting_for_reply.get(ADMIN_ID):
                     target_user_id = waiting_for_reply.pop(ADMIN_ID)
                     waiting_for_manual_reply[ADMIN_ID] = target_user_id
-                    send(ADMIN_ID, f"✍️ Напиши свой текст ответа для [id{target_user_id}|Игрока]:", keyboard=get_main_kb())
+                    send(ADMIN_ID, f"✍️ Напиши свой текст для [id{target_user_id}|Игрока]:", keyboard=get_main_kb())
                 continue
 
             if user_id == ADMIN_ID and ADMIN_ID in waiting_for_reply:
@@ -249,6 +258,7 @@ try:
                 waiting_for_support.remove(user_id)
                 continue
 
+            # СТАТИСТИКА
             if text_lower == "стата" and user_id == ADMIN_ID:
                 conn = sqlite3.connect('super_bot.db')
                 c = conn.cursor()
@@ -263,6 +273,7 @@ try:
                 send(peer_id, stats_text)
                 continue
 
+            # ЧС И ПОДПИСКА
             warns, ban_until, uploads = get_user_data(user_id)
             current_time = int(time.time())
 
@@ -274,6 +285,7 @@ try:
                 send(peer_id, f"🔒 **Доступ ограничен!**\nПодпишись: {GROUP_LINK}")
                 continue
 
+            # ОБРАБОТКА ФОТО/ВИДЕО
             if peer_id in waiting_mode:
                 try:
                     msg_info = vk.messages.getById(message_ids=event.message_id)
@@ -305,27 +317,39 @@ try:
                         elif mode == 'one':
                             if is_photo and links:
                                 clean_link = get_clean_link(links[0])
-                                add_upload(user_id)
-                                final_text = (f"🌿 **Твоя фотография загружена!**\n\n"
-                                              f"🔗 Ссылка: {clean_link}\n\n"
-                                              f"💾 **Как сохранить:**\n1. Нажми на ссылку.\n2. Зажми картинку пальцем и выбери «Сохранить изображение».")
-                                send(peer_id, final_text, keyboard=get_main_kb())
+                                if clean_link:
+                                    add_upload(user_id)
+                                    final_text = (f"🌿 **Твоя фотография загружена!**\n\n"
+                                                  f"🔗 Ссылка: {clean_link}\n\n"
+                                                  f"💾 **Как сохранить:**\n1. Нажми на ссылку (откроется в браузере).\n2. Зажми картинку пальцем и выбери «Сохранить изображение».")
+                                    send(peer_id, final_text, keyboard=get_main_kb())
+                                else:
+                                    send(peer_id, "⚠️ **Сервер перегружен.** Отправь фото еще раз через минуту.", keyboard=get_main_kb())
                             else:
                                 send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
                         elif mode == 'multi':
                             if is_photo and links:
-                                add_upload(user_id)
                                 final_text = "🌿 **Твои фотографии загружены!**\n\n"
+                                success_count = 0
                                 for i, link in enumerate(links, 1):
                                     clean_link = get_clean_link(link)
-                                    final_text += f"🔗 Фото {i}: {clean_link}\n\n"
-                                send(peer_id, final_text, keyboard=get_main_kb())
+                                    if clean_link:
+                                        final_text += f"🔗 Фото {i}: {clean_link}\n\n"
+                                        success_count += 1
+                                
+                                if success_count > 0:
+                                    add_upload(user_id)
+                                    final_text += "💾 *Зажми картинку в браузере и выбери «Сохранить».*"
+                                    send(peer_id, final_text, keyboard=get_main_kb())
+                                else:
+                                    send(peer_id, "⚠️ **Сервер перегружен.** Попробуй позже.", keyboard=get_main_kb())
                             else:
                                 send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
                 except Exception as e: print(e)
                 if peer_id in waiting_mode: del waiting_mode[peer_id]
                 continue
 
+            # КНОПКИ МЕНЮ
             if "видео" in text_lower:
                 waiting_mode[peer_id] = 'video'
                 send(peer_id, "🎬 **Отправь мне видео!**", keyboard=get_main_kb())
@@ -344,7 +368,7 @@ try:
                 
             elif "связь с администрацией" in text_lower:
                 if user_id in users_in_report:
-                    send(peer_id, "⏳ **У вас уже есть активный репорт!**\n\nПожалуйста, дождитесь ответа администратора.", keyboard=get_main_kb())
+                    send(peer_id, "⏳ **У вас уже есть активный репорт!**\n\nПожалуйста, дождитесь ответа.", keyboard=get_main_kb())
                 else:
                     send(peer_id, "📩 Выберите способ обращения:", keyboard=get_choice_kb_player())
                     
@@ -364,3 +388,4 @@ try:
 
 except Exception as e:
     print("КРИТИЧЕСКАЯ ОШИБКА:", e)
+    
