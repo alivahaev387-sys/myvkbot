@@ -66,49 +66,39 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
-# --- СОКРАЩАТЕЛЬ ССЫЛОК ---
-def shorten_link(url):
+# --- СОКРАЩЕНИЕ ССЫЛКИ ЧЕРЕЗ ВК (БЕЗ САЙТОВ) ---
+def shorten_vk_link(long_url):
     try:
-        # Сокращаем через Яндекс (clck.ru) - без ключей и регистрации
-        res = requests.get(f"https://clck.ru/--?url={url}", timeout=5)
-        if res.status_code == 200 and "http" in res.text:
-            return res.text.strip()
-    except: pass
-    
-    try:
-        # Если Яндекс упал, пробуем is.gd
-        res = requests.get(f"https://is.gd/create.php?format=simple&url={url}", timeout=5)
-        if res.status_code == 200 and "http" in res.text:
-            return res.text.strip()
-    except: pass
-    return url # Если сократить не удалось, отдаем как есть
+        # Используем официальный метод ВК для сокращения ссылок
+        res = vk.utils.getShortLink(url=long_url)
+        if 'short_url' in res:
+            return res['short_url']
+    except Exception as e:
+        print("Ошибка сокращения ВК:", e)
+    return long_url
 
-# --- ЗАГРУЗКА И ПОЛУЧЕНИЕ ССЫЛКИ ---
+# --- ЗАГРУЗКА НА TELEGRAPH (БЕЗ КЛЮЧЕЙ) ---
 def get_final_link(vk_image_url):
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
-        img_data = requests.get(vk_image_url, headers=headers, timeout=5).content
+        img_data = requests.get(vk_image_url, headers=headers, timeout=10).content
         
-        # 1. Пытаемся загрузить на Imgur
+        # Загружаем на Telegraph
         try:
-            res = requests.post('https://api.imgur.com/3/image', headers={'Authorization': 'Client-ID 546c25a59c58ad7'}, files={'image': img_data}, timeout=10)
+            res = requests.post('https://api.telegra.ph/upload', files={'file': ('image.jpg', img_data)}, timeout=15)
             if res.status_code == 200:
-                return shorten_link(res.json()['data']['link'])
-        except: pass
-            
-        # 2. Пытаемся загрузить на ImgBB
-        try:
-            res = requests.post("https://api.imgbb.com/1/upload", params={"key": "a771230778ab5231d5065a6c92834a11"}, files={"image": img_data}, timeout=10).json()
-            if res.get("success"):
-                return shorten_link(res["data"]["url"])
-        except: pass
+                tg_url = f"https://telegra.ph{res.json()[0]['src']}"
+                # Сокращаем полученную ссылку через ВК
+                return shorten_vk_link(tg_url)
+        except Exception as e:
+            print("Telegraph не ответил:", e)
 
-        # Если всё упало, сокращаем оригинальную ссылку ВК
-        return shorten_link(vk_image_url)
-    except: 
-        return shorten_link(vk_image_url)
+        return None
+    except Exception as e: 
+        print("Ошибка скачивания фото:", e)
+        return None
 
-# --- КЛАВИАТУРЫ (ОСТАЛИСЬ КАК БЫЛИ) ---
+# --- КЛАВИАТУРЫ ---
 def get_main_kb():
     return json.dumps({
         "one_time": False, 
@@ -183,7 +173,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (Сокращенные ссылки)!")
+print("БОТ ЗАПУЩЕН (Сокращение через VK API)!")
 
 try:
     longpoll = VkLongPoll(vk_session)
@@ -297,7 +287,16 @@ try:
                             if attach.get('type') == 'photo':
                                 is_photo = True
                                 sizes = attach['photo'].get('sizes', [])
-                                if sizes: links.append(sizes[-1]['url'])
+                                # Берем размер 'x' (~604px) для быстрой загрузки
+                                best_url = None
+                                for size in sizes:
+                                    if size.get('type') == 'x':
+                                        best_url = size['url']
+                                        break
+                                if not best_url and sizes:
+                                    best_url = sizes[-1]['url'] # Если нет 'x', берем самый большой
+                                if best_url:
+                                    links.append(best_url)
                             elif attach.get('type') == 'video':
                                 is_video = True
                                 v_id = attach['video']['id']
@@ -315,22 +314,32 @@ try:
                         elif mode == 'one':
                             if is_photo and links:
                                 short_link = get_final_link(links[0])
-                                add_upload(user_id)
-                                final_text = (f"🌿 **Твоя фотография загружена!**\n\n"
-                                              f"🔗 Ссылка: {short_link}\n\n"
-                                              f"💾 **Как сохранить:**\n1. Нажми на ссылку (откроется в браузере).\n2. Зажми картинку и выбери «Сохранить».")
-                                send(peer_id, final_text, keyboard=get_main_kb())
+                                if short_link:
+                                    add_upload(user_id)
+                                    final_text = (f"🌿 **Твоя фотография загружена!**\n\n"
+                                                  f"🔗 Ссылка: {short_link}\n\n"
+                                                  f"💾 **Как сохранить:**\n1. Нажми на ссылку.\n2. Если открылось приложение ВК, нажми на 3 точки и выбери «Открыть в Safari».\n3. Зажми картинку и выбери «Сохранить».")
+                                    send(peer_id, final_text, keyboard=get_main_kb())
+                                else:
+                                    send(peer_id, "⚠️ **Ошибка загрузки.** Попробуй отправить фото еще раз.", keyboard=get_main_kb())
                             else:
                                 send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
                         elif mode == 'multi':
                             if is_photo and links:
-                                add_upload(user_id)
                                 final_text = "🌿 **Твои фотографии загружены!**\n\n"
+                                success_count = 0
                                 for i, link in enumerate(links, 1):
                                     short_link = get_final_link(link)
-                                    final_text += f"🔗 Фото {i}: {short_link}\n\n"
-                                final_text += "💾 *Зажми картинку в браузере и выбери «Сохранить».*"
-                                send(peer_id, final_text, keyboard=get_main_kb())
+                                    if short_link:
+                                        final_text += f"🔗 Фото {i}: {short_link}\n\n"
+                                        success_count += 1
+                                
+                                if success_count > 0:
+                                    add_upload(user_id)
+                                    final_text += "💾 *Зажми картинку в браузере и выбери «Сохранить».*"
+                                    send(peer_id, final_text, keyboard=get_main_kb())
+                                else:
+                                    send(peer_id, "⚠️ **Ошибка загрузки.** Попробуй позже.", keyboard=get_main_kb())
                             else:
                                 send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
                 except Exception as e: print(e)
