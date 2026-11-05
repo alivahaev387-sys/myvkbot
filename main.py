@@ -66,7 +66,7 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
-# --- ФУНКЦИЯ ЗАГРУЗКИ НА TELEGRAPH (ДОВЕРЕННЫЙ ХОСТИНГ) ---
+# --- ЗАГРУЗКА НА TELEGRAPH (ЕДИНСТВЕННЫЙ БЕЗОПАСНЫЙ ВАРИАНТ) ---
 def get_clean_link(vk_image_url):
     try:
         img_data = requests.get(vk_image_url, timeout=15).content
@@ -165,7 +165,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (Безопасные ссылки)!")
+print("БОТ ЗАПУЩЕН (Telegraph)!")
 
 try:
     longpoll = VkLongPoll(vk_session)
