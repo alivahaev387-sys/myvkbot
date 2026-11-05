@@ -1,12 +1,13 @@
 import vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType
-import json, random, sqlite3, time, requests, re
+import json, random, sqlite3, time, requests
 
 # ===== ТОКЕН =====
 TOKEN = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMbjdYBmf-QH6dwf-ZL4dMYkKMEEiviqU5GPmM5kaG4Xt535Hb1ApvImzJkk_cq-Q7ZxOQYVPbnULj0Fg6U0yDNSPgLwANkGKX348kTlENY6s99NOBeUO-e486DAX-0XtbAa3tmQdMYjF2GLxluGvHrhFHhvr5YCuDXfYxTgw5cYo"
 ADMIN_ID = 200005093141
 GROUP_ID = 242296265 
 GROUP_LINK = "https://vk.com/club242296265"
+IMGBB_API_KEY = "a771230778ab5231d5065a6c92834a11" 
 
 vk_session = vk_api.VkApi(token=TOKEN)
 vk = vk_session.get_api()
@@ -66,39 +67,36 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
-# --- ЗАГРУЗКА НА POSTIMAGES (ЧИСТЫЕ ССЫЛКИ) ---
+# --- ЗАГРУЗКА (IMGUR / IMGBB) С ТАЙМАУТАМИ ---
 def get_clean_link(vk_image_url):
     try:
-        img_data = requests.get(vk_image_url, timeout=15).content
+        # Скачиваем фото из ВК (максимум 10 секунд)
+        img_data = requests.get(vk_image_url, timeout=10).content
         
-        # 1. Получаем токен с главной страницы Postimages
-        response = requests.get("https://postimages.org/", timeout=10)
-        token_match = re.search(r'[\'\"]token[\'\"]\s*,\s*[\'\"](\w+)[\'\"]', response.text, re.IGNORECASE)
-        if not token_match:
-            return None
-        token = token_match.group(1)
-        
-        # 2. Формируем данные для загрузки
-        form_data = {
-            'token': token,
-            'expire': '0',
-            'numfiles': '1',
-            'session_upload': f'{round(time.time() * 1000)}',
-            'upload_referer': 'aHR0cHM6Ly9wb3N0aW1nLmNjLw==',
-            'upload_session': 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-            'adult': '0',
-        }
-        
-        # 3. Отправляем фото
-        files = {"file": ("image.jpg", img_data)}
-        res = requests.post("https://postimages.org/json/rr", data=form_data, files=files, timeout=20).json()
-        
-        # 4. Получаем прямую ссылку
-        if "url" in res:
-            return res["url"]
+        # 1. Пытаемся загрузить на Imgur (максимум 10 секунд)
+        try:
+            headers = {'Authorization': 'Client-ID 546c25a59c58ad7'} # Публичный ключ для тестов
+            res = requests.post('https://api.imgur.com/3/image', headers=headers, files={'image': img_data}, timeout=10)
+            if res.status_code == 200:
+                return res.json()['data']['link']
+        except: pass
+            
+        # 2. Если Imgur не ответил, пробуем ImgBB (максимум 10 секунд)
+        try:
+            res = requests.post(
+                "https://api.imgbb.com/1/upload",
+                params={"key": IMGBB_API_KEY},
+                files={"image": img_data},
+                timeout=10
+            ).json()
+            if res.get("success"):
+                return res["data"]["url"]
+        except: pass
+
+        # Если оба сайта не ответили за 20 секунд, возвращаем None
         return None
     except Exception as e:
-        print("Ошибка Postimages:", e)
+        print("Ошибка загрузки:", e)
         return None
 
 # --- КЛАВИАТУРЫ ---
@@ -176,7 +174,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (Postimages)!")
+print("БОТ ЗАПУЩЕН (Imgur)!")
 
 try:
     longpoll = VkLongPoll(vk_session)
