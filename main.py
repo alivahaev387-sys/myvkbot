@@ -8,6 +8,9 @@ ADMIN_ID = 200005093141
 GROUP_ID = 242296265 
 GROUP_LINK = "https://vk.com/club242296265"
 
+# Ключ для ImgBB
+IMGBB_API_KEY = "a771230778ab5231d5065a6c92834a11" 
+
 vk_session = vk_api.VkApi(token=TOKEN)
 vk = vk_session.get_api()
 waiting_mode = {}
@@ -66,28 +69,38 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
-# --- ФУНКЦИЯ ЗАГРУЗКИ НА TELEGRAPH (ДЛЯ ОТКРЫТИЯ В БРАУЗЕРЕ) ---
-def upload_to_telegraph(image_url):
+# --- ФУНКЦИЯ ЗАГРУЗКИ НА ЧИСТЫЙ ХОСТИНГ (ImgBB / Catbox) ---
+def get_clean_link(vk_image_url):
     try:
-        # Скачиваем фото из ВК
-        img_data = requests.get(image_url, timeout=15).content
+        # 1. Скачиваем фото из ВК
+        img_data = requests.get(vk_image_url, timeout=15).content
         
-        # Загружаем на Telegraph
-        response = requests.post(
-            'https://api.telegra.ph/upload', 
-            files={'file': ('image.jpg', img_data)}, 
-            timeout=30
-        )
-        
-        if response.status_code == 200:
-            res_json = response.json()
-            # Telegraph возвращает путь вида /file/xxxx.jpg
-            if isinstance(res_json, list) and 'src' in res_json[0]:
-                return f"https://telegra.ph{res_json[0]['src']}"
-        return None
+        # 2. Пытаемся загрузить на ImgBB
+        try:
+            res = requests.post(
+                "https://api.imgbb.com/1/upload",
+                params={"key": IMGBB_API_KEY},
+                files={"image": img_data},
+                timeout=20
+            ).json()
+            if res.get("success"):
+                return res["data"]["url"]
+        except: pass
+            
+        # 3. Если ImgBB не сработал, пробуем Catbox
+        try:
+            files = {'fileToUpload': ('image.jpg', img_data)}
+            data = {'reqtype': 'fileupload'}
+            response = requests.post("https://catbox.moe/user/api.php", data=data, files=files, timeout=25)
+            if response.status_code == 200 and "http" in response.text:
+                return response.text.strip()
+        except: pass
+                
+        # Если ничего не сработало, возвращаем оригинальную ссылку ВК
+        return vk_image_url
     except Exception as e:
-        print("Ошибка загрузки на Telegraph:", e)
-        return None
+        print("Ошибка хостинга:", e)
+        return vk_image_url
 
 # --- КЛАВИАТУРЫ ---
 def get_main_kb():
@@ -164,7 +177,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (Telegraph Links)!")
+print("БОТ ЗАПУЩЕН (Чистые ссылки)!")
 
 try:
     longpoll = VkLongPoll(vk_session)
@@ -291,13 +304,10 @@ try:
                                 send(peer_id, f"🎬 **Ссылка:**\n{links[0]}", keyboard=get_main_kb())
                         elif mode == 'one':
                             if is_photo and links:
-                                # Перезаливаем на Telegraph, чтобы ссылка открывалась в браузере
-                                telegraph_link = upload_to_telegraph(links[0])
-                                final_link = telegraph_link if telegraph_link else links[0]
-                                
+                                clean_link = get_clean_link(links[0])
                                 add_upload(user_id)
                                 final_text = (f"🌿 **Твоя фотография загружена!**\n\n"
-                                              f"🔗 Ссылка: {final_link}\n\n"
+                                              f"🔗 Ссылка: {clean_link}\n\n"
                                               f"💾 **Как сохранить:**\n1. Нажми на ссылку.\n2. Зажми картинку пальцем и выбери «Сохранить изображение».")
                                 send(peer_id, final_text, keyboard=get_main_kb())
                             else:
@@ -307,10 +317,8 @@ try:
                                 add_upload(user_id)
                                 final_text = "🌿 **Твои фотографии загружены!**\n\n"
                                 for i, link in enumerate(links, 1):
-                                    # Перезаливаем каждую на Telegraph
-                                    telegraph_link = upload_to_telegraph(link)
-                                    final_link = telegraph_link if telegraph_link else link
-                                    final_text += f"🔗 Фото {i}: {final_link}\n\n"
+                                    clean_link = get_clean_link(link)
+                                    final_text += f"🔗 Фото {i}: {clean_link}\n\n"
                                 send(peer_id, final_text, keyboard=get_main_kb())
                             else:
                                 send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
