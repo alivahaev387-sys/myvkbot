@@ -67,17 +67,24 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
-# --- СУПЕР-ЗАЩИЩЕННАЯ ЗАГРУЗКА (4 ХОСТИНГА + МАСКИРОВКА) ---
+# --- СУПЕР-ЗАЩИТА: ПРОКСИ ДЛЯ ЗАГРУЗКИ ---
 def get_clean_link(vk_image_url):
     try:
-        # 1. Скачиваем фото из ВК, притворяясь браузером (чтобы ВК не блокировал)
+        # Скачиваем фото с прокси (притворяемся браузером)
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        img_data = requests.get(vk_image_url, headers=headers, timeout=10).content
         
-        if len(img_data) < 1000: # Если скачался мусор вместо фото
+        # Пытаемся получить саму картинку через прокси, чтобы обойти блокировку ВК
+        proxy_url = f"https://api.allorigins.win/raw?url={vk_image_url}"
+        img_data = requests.get(proxy_url, headers=headers, timeout=10).content
+        
+        # Если скачался мусор (ошибка прокси), пробуем напрямую
+        if len(img_data) < 2000:
+            img_data = requests.get(vk_image_url, headers=headers, timeout=10).content
+            
+        if len(img_data) < 2000:
             return None
 
-        # 2. Пытаемся загрузить на ImgBB (ждем 10 секунд)
+        # 1. Пытаемся загрузить на ImgBB (ждем 10 секунд)
         try:
             res = requests.post(
                 "https://api.imgbb.com/1/upload",
@@ -88,29 +95,28 @@ def get_clean_link(vk_image_url):
             if res.get("success"): return res["data"]["url"]
         except: pass
             
-        # 3. Если ImgBB упал, летим на Telegraph
+        # 2. Если ImgBB упал, летим на Telegraph
         try:
             res = requests.post('https://api.telegra.ph/upload', files={'file': ('image.jpg', img_data)}, timeout=10)
             if res.status_code == 200:
                 return f"https://telegra.ph{res.json()[0]['src']}"
         except: pass
 
-        # 4. Если и он упал, летим на Catbox
+        # 3. Если и он упал, летим на Catbox
         try:
             res = requests.post("https://catbox.moe/user/api.php", data={"reqtype": "fileupload"}, files={"fileToUpload": ("image.jpg", img_data)}, timeout=10)
             if res.status_code == 200 and "http" in res.text: return res.text.strip()
         except: pass
 
-        # 5. Последний шанс - Litterbox (временный хостинг)
-        try:
-            res = requests.post("https://litterbox.catbox.moe/resources/internals/api.php", data={"reqtype": "fileupload", "time": "1h"}, files={"fileToUpload": ("image.jpg", img_data)}, timeout=10)
-            if res.status_code == 200 and "http" in res.text: return res.text.strip()
-        except: pass
+        # 4. Если ВСЕ УПАЛИ — делаем маскировку через wsrv.nl (это не даст ошибку, но ссылка будет работать)
+        clean_url = vk_image_url.replace('https://', '').replace('http://', '')
+        return f"https://wsrv.nl/?url={clean_url}&w=1200"
                 
-        return None
     except Exception as e:
-        print("Ошибка скачивания фото:", e)
-        return None
+        print("Критическая ошибка загрузки:", e)
+        # Даже если всё сломалось, выдаем замаскированную ссылку ВК!
+        clean_url = vk_image_url.replace('https://', '').replace('http://', '')
+        return f"https://wsrv.nl/?url={clean_url}&w=1200"
 
 # --- КЛАВИАТУРЫ ---
 def get_main_kb():
@@ -187,7 +193,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (Защита от ошибок)!")
+print("БОТ ЗАПУЩЕН (Прокси + Обход блокировок)!")
 
 try:
     longpoll = VkLongPoll(vk_session)
