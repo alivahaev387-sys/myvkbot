@@ -18,6 +18,7 @@ waiting_for_manual_report = set()
 waiting_for_manual_reply = {} 
 users_in_report = set() 
 waiting_for_rating = set() 
+active_reports = {} # Храним активные репорты: {report_id: user_id}
 
 # --- БАЗА ДАННЫХ ---
 def init_db():
@@ -50,7 +51,6 @@ def add_upload(user_id):
     conn.commit()
     conn.close()
 
-# ФУНКЦИЯ: Выдача варна и проверка на бан
 def add_warn_and_check_ban(user_id):
     conn = sqlite3.connect('super_bot.db')
     c = conn.cursor()
@@ -63,7 +63,6 @@ def add_warn_and_check_ban(user_id):
     is_banned = False
     
     if new_warns >= 3:
-        # Бан на 10 лет (315360000 секунд)
         ban_time = int(time.time()) + 315360000
         c.execute("UPDATE users SET warns = 0, ban_until = ? WHERE user_id = ?", (ban_time, user_id)) 
         is_banned = True
@@ -154,7 +153,6 @@ def get_rating_kb(target_user_id):
         ]
     }, ensure_ascii=False)
 
-# КНОПКИ ДЛЯ РЕПОРТА (Ответить / Спам)
 def get_admin_report_kb(report_id, target_user_id):
     return json.dumps({
         "inline": True,
@@ -175,62 +173,74 @@ try:
             peer_id = event.object.peer_id
             event_id = event.object.event_id
             
-            # Защита для кнопок оценки (игрок)
             target_id = payload.get("target_id")
             if payload.get("cmd") in ["rate_report", "close_report"]:
                 if target_id and str(user_id) != str(target_id):
-                    vk.messages.sendMessageEventAnswer(
-                        event_id=event_id, user_id=user_id, peer_id=peer_id, 
-                        event_data=json.dumps({"type": "show_snackbar", "text": "❌ Эта кнопка не для вас!"})
-                    )
+                    vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "❌ Эта кнопка не для вас!"}))
                     continue
 
             # Обработка кнопок Админа в репорте
             if user_id == ADMIN_ID:
+                report_id = payload.get("report_id")
+                
                 if payload.get("cmd") == "admin_reply":
+                    # ПРОВЕРКА: Если репорта нет в активных, значит он уже спам/отвечен
+                    if report_id not in active_reports:
+                        vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "❌ Этот репорт уже закрыт или помечен как спам!"}))
+                        continue
+                        
                     target_user = payload.get("target_id")
-                    report_id = payload.get("report_id")
-                    waiting_for_manual_reply[ADMIN_ID] = target_user
+                    waiting_for_manual_reply[ADMIN_ID] = {"target_user": target_user, "report_id": report_id}
                     send_msg(ADMIN_ID, f"✍️ **Репорт #{report_id}**\nНапиши текст ответа для [id{target_user}|Игрока]:", keyboard=get_main_kb())
                     vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Напиши ответ в чат"}))
                     continue
                 
                 elif payload.get("cmd") == "admin_spam":
+                    # ПРОВЕРКА: Если репорта нет в активных, игнорируем
+                    if report_id not in active_reports:
+                        vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Этот репорт уже обработан!"}))
+                        continue
+                        
                     target_user = payload.get("target_id")
-                    report_id = payload.get("report_id")
                     
-                    # Выдаем варн
+                    # Удаляем из активных
+                    del active_reports[report_id]
+                    users_in_report.discard(target_user)
+                    
+                    # Если ты в этот момент печатал ответ на этот репорт, отменяем
+                    if ADMIN_ID in waiting_for_manual_reply:
+                        if waiting_for_manual_reply[ADMIN_ID]["report_id"] == report_id:
+                            del waiting_for_manual_reply[ADMIN_ID]
+                            send_msg(ADMIN_ID, "❌ Вы пометили репорт как спам. Ожидание ответа отменено.")
+
                     new_warns, is_banned = add_warn_and_check_ban(target_user)
                     
-                    # Отчет ТЕБЕ (Админу)
                     if is_banned:
                         admin_msg = f"⛔ Пользователь [id{target_user}|Игрок] отправлен в ЧС за 3 спама. Репорт #{report_id} удален."
                     else:
-                        admin_msg = f"⚠️ Пользователь [id{target_user}|Игрок] получил предупреждение за спам ({new_warns}/3). Репорт #{report_id} удален."
+                        admin_msg = f"⚠️ Пользователь [id{target_user}|Игрок] получил предупреждение ({new_warns}/3). Репорт #{report_id} удален."
                     send_msg(ADMIN_ID, admin_msg)
                     
-                    # ГРОЗНОЕ СООБЩЕНИЕ ИГРОКУ
                     if is_banned:
                         spam_text = (f"⛔ **ВЫ БЫЛИ АВТОМАТИЧЕСКИ ЗАБЛОКИРОВАНЫ!**\n\n"
-                                     f"Причина: Систематический спам (3/3 предупреждения).\n"
+                                     f"Причина: Систематический спам (3/3).\n"
                                      f"Кто выдал: [id{ADMIN_ID}|Администратор].\n\n"
                                      f"Если вы пожалели о ситуации, обратитесь в ЛС: [id{ADMIN_ID}|Владелец]")
                     else:
                         spam_text = (f"🚫 **ВАШ РЕПОРТ ОТКЛОНЕН!**\n\n"
                                      f"Причина: СПАМ.\n"
-                                     f"Вы получили предупреждение. Ваш счет: {new_warns}/3.\n"
-                                     f"⚠️ **При 3-х предупреждениях вы будете автоматически отправлены в ЧС (Бан)!**\n\n"
+                                     f"Ваш счет: {new_warns}/3.\n"
+                                     f"⚠️ **При 3-х предупреждениях вы будете автоматически отправлены в ЧС!**\n\n"
                                      f"Кто выдал: [id{ADMIN_ID}|Администратор].\n"
-                                     f"Если вы пожалели о данной ситуации, вы можете обратиться через ЛС: [id{ADMIN_ID}|Владелец]")
+                                     f"Если вы пожалели о ситуации, обратитесь через ЛС: [id{ADMIN_ID}|Владелец]")
                     
                     send_msg(target_user, spam_text)
                     
-                    # Удаляем сообщение с репортом, чтобы не мешало
                     try:
                         vk.messages.delete(message_ids=event.object.conversation_message_id, delete_for_all=1)
                     except: pass
                     
-                    vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Спам обработан"}))
+                    vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Спам обработан, репорт закрыт"}))
                     continue
 
             # Логика оценки
@@ -266,14 +276,11 @@ try:
             if text_lower in ["пинг", "ping", "/ping", "/пинг", "!ping", "!пинг"]:
                 ping_ms = int((time.time() - msg.get('date', time.time())) * 1000)
                 if ping_ms < 0: ping_ms = 0
-
-                # ВСЕГДА ОТЛИЧНО
-                status = "🟢 Отлично"
-
+                
                 ping_text = (
                     f"🏓 Понг!\n\n"
                     f"⚡ Скорость соединения: {ping_ms} мс\n"
-                    f"📊 Статус сети: {status}"
+                    f"📊 Статус сети: 🟢 Отлично"
                 )
                 send_msg(peer_id, ping_text, keyboard=None)
                 continue 
@@ -286,6 +293,28 @@ try:
                 send_msg(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
                 continue
 
+            # --- ОТВЕТ АДМИНА НА РЕПОРТ ---
+            if user_id == ADMIN_ID and ADMIN_ID in waiting_for_manual_reply:
+                reply_data = waiting_for_manual_reply[ADMIN_ID]
+                target_user_id = reply_data["target_user"]
+                report_id = reply_data["report_id"]
+                
+                # Если репорт уже удален (спам), не отправляем
+                if report_id not in active_reports:
+                    send_msg(ADMIN_ID, f"❌ Ошибка: Репорт #{report_id} уже был закрыт или помечен как спам. Ответ не отправлен.", keyboard=get_main_kb())
+                    del waiting_for_manual_reply[ADMIN_ID]
+                    continue
+
+                send_msg(target_user_id, f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n{text}", keyboard=get_rating_kb(target_user_id))
+                send_msg(ADMIN_ID, f"✅ Ответ доставлен [id{target_user_id}|Игроку]. Репорт #{report_id} закрыт.", keyboard=get_main_kb())
+                
+                # Удаляем из активных и очищаем состояния
+                del active_reports[report_id]
+                users_in_report.discard(target_user_id)
+                del waiting_for_manual_reply[ADMIN_ID]
+                continue
+
+            # Ожидание оценки
             if user_id in waiting_for_rating:
                 try:
                     rating = int(text)
@@ -324,8 +353,9 @@ try:
                     continue
                 else:
                     report_id = random.randint(1000, 9999)
-                    support_text = f"🆘 **Репорт #{report_id}**\n👤 От: [id{user_id}|Игрок]\n\n{text}"
+                    active_reports[report_id] = user_id # Сохраняем в активные
                     
+                    support_text = f"🆘 **Репорт #{report_id}**\n👤 От: [id{user_id}|Игрок]\n\n{text}"
                     send_msg(ADMIN_ID, support_text, keyboard=get_admin_report_kb(report_id, user_id))
                     
                     users_in_report.add(user_id) 
@@ -341,21 +371,14 @@ try:
                     continue
                 
                 report_id = random.randint(1000, 9999)
-                support_text = f"🆘 **Репорт #{report_id}**\n👤 От: [id{user_id}|Игрок]\n\n{text}"
+                active_reports[report_id] = user_id # Сохраняем в активные
                 
+                support_text = f"🆘 **Репорт #{report_id}**\n👤 От: [id{user_id}|Игрок]\n\n{text}"
                 send_msg(ADMIN_ID, support_text, keyboard=get_admin_report_kb(report_id, user_id))
                 
                 users_in_report.add(user_id) 
                 send_msg(user_id, "✅ Репорт отправлен! Ожидай.", keyboard=get_main_kb())
                 waiting_for_support.remove(user_id)
-                continue
-
-            # Админ отвечает на репорт
-            if user_id == ADMIN_ID and ADMIN_ID in waiting_for_manual_reply:
-                target_user_id = waiting_for_manual_reply[ADMIN_ID]
-                send_msg(target_user_id, f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n{text}", keyboard=get_rating_kb(target_user_id))
-                send_msg(ADMIN_ID, f"✅ Ответ доставлен [id{target_user_id}|Игроку].", keyboard=get_main_kb())
-                del waiting_for_manual_reply[ADMIN_ID]
                 continue
 
             # Статистика
