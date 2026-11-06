@@ -154,7 +154,6 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-# Кнопки для оценки (Вшиваем ID пользователя для защиты)
 def get_rating_kb(target_user_id):
     return json.dumps({
         "inline": True,
@@ -168,14 +167,12 @@ print("БОТ ЗАПУЩЕН (Умная система оценок)!")
 
 try:
     for event in longpoll.listen():
-        # --- ОБРАБОТКА НАЖАТИЙ ИНЛАЙН-КНОПОК ---
         if event.type == VkBotEventType.MESSAGE_EVENT:
             payload = event.object.payload
             user_id = event.object.user_id
             peer_id = event.object.peer_id
             event_id = event.object.event_id
             
-            # ЗАЩИТА КНОПОК
             target_id = payload.get("target_id")
             if target_id and str(user_id) != str(target_id):
                 vk.messages.sendMessageEventAnswer(
@@ -201,34 +198,26 @@ try:
                     vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Репорт уже закрыт!"}))
             continue
 
-        # --- ОБРАБОТКА СООБЩЕНИЙ ---
         if event.type == VkBotEventType.MESSAGE_NEW and event.object.message['peer_id']:
             msg = event.object.message
             peer_id = msg['peer_id']
             user_id = msg['from_id'] 
             
-            # Очищаем текст от упоминания группы
             text = msg.get('text', '').strip()
             text_lower = text.lower().replace("@club242296265", "").strip()
 
-            # Проверяем: ЛС это или беседа
             is_ls = (peer_id == user_id)
 
             # =========================================================
-            # 🚀 КОМАНДА ПИНГ (ТОЛЬКО СЛОВО ПОНГ)
+            # 🚀 ТУТ САМАЯ ПРОСТАЯ КОМАНДА ПИНГ (ТОЛЬКО СЛОВО ПОНГ)
             # =========================================================
             if text_lower in ["пинг", "ping", "/ping", "/пинг", "!ping", "!пинг"]:
                 send_msg(peer_id, "🏓 Понг!", keyboard=None)
                 continue 
             # =========================================================
 
-            # === ЕСЛИ ЭТО БЕСЕДА - БОТ МОЛЧИТ (кроме пинга) ===
             if not is_ls:
                 continue 
-
-            # =========================================================
-            # ДАЛЬШЕ ИДЕТ ТОЛЬКО ДЛЯ ЛИЧНЫХ СООБЩЕНИЙ (ЛС)
-            # =========================================================
 
             if text_lower == "начать" or text_lower == "start":
                 send_msg(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
