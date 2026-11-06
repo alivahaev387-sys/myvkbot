@@ -1,7 +1,7 @@
 import vk_api
 from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
 import json, random, sqlite3, time, requests, re
-import threading # Добавлено для фонового снятия бана
+import threading # Для фонового снятия бана
 
 # ===== ТОКЕН =====
 TOKEN = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMbjdYBmf-QH6dwf-ZL4dMYkKMEEiviqU5GPmM5kaG4Xt535Hb1ApvImzJkk_cq-Q7ZxOQYVPbnULj0Fg6U0yDNSPgLwANkGKX348kTlENY6s99NOBeUO-e486DAX-0XtbAa3tmQdMYjF2GLxluGvHrhFHhvr5YCuDXfYxTgw5cYo"
@@ -165,16 +165,13 @@ def auto_unban_checker():
             c = conn.cursor()
             now = int(time.time())
             
-            # Ищем тех, у кого время бана вышло, но бан еще записан
             c.execute("SELECT user_id FROM users WHERE ban_until > 0 AND ban_until <= ?", (now,))
             expired_users = c.fetchall()
 
             for (user_id,) in expired_users:
-                # Снимаем бан в БД
                 c.execute("UPDATE users SET ban_until = 0 WHERE user_id = ?", (user_id,))
                 conn.commit()
 
-                # Отправляем красивое приветствие
                 unban_text = (
                     f"🎉 **ПРИВЕТСТВУЕМ СНОВА!** 🎉\n\n"
                     f"С вас был автоматически снят ЧС (Черный список).\n"
@@ -189,9 +186,8 @@ def auto_unban_checker():
         except Exception as e:
             print(f"Ошибка в авто-разбане: {e}")
         
-        time.sleep(10) # Проверка каждые 10 секунд
+        time.sleep(10)
 
-# Запускаем фоновый поток
 threading.Thread(target=auto_unban_checker, daemon=True).start()
 # ==================================================
 
@@ -255,12 +251,13 @@ try:
                         admin_msg = f"⚠️ Пользователь [id{target_user}|Игрок] получил предупреждение ({new_warns}/3). Репорт #{report_id} удален."
                         send_msg(ADMIN_ID, admin_msg)
                         
+                        # ЗАМЕНЕНО ЗДЕСЬ
                         spam_text = (f"🚫 **ВАШ РЕПОРТ ОТКЛОНЕН!**\n\n"
                                      f"Причина: СПАМ.\n"
                                      f"Ваш счет: {new_warns}/3.\n"
                                      f"⚠️ **При 3-х предупреждениях вы будете автоматически отправлены в ЧС!**\n\n"
                                      f"Кто выдал: [id{ADMIN_ID}|Администратор].\n"
-                                     f"Если вы пожалели о ситуации, обратитесь через ЛС: [id{ADMIN_ID}|Владелец]")
+                                     f"Если вы не согласны с выдачей ЧС, обратитесь через ЛС: [id{ADMIN_ID}|Владелец]")
                         send_msg(target_user, spam_text)
                         
                         del active_reports[report_id]
@@ -281,10 +278,11 @@ try:
                     conn.commit()
                     conn.close()
 
+                    # ЗАМЕНЕНО ЗДЕСЬ
                     ban_text = (f"⛔ **ВЫ БЫЛИ АВТОМАТИЧЕСКИ ЗАБЛОКИРОВАНЫ!**\n\n"
                                 f"Причина: Систематический спам (3/3).\n"
                                 f"Кто выдал: [id{ADMIN_ID}|Администратор].\n\n"
-                                f"Если вы пожалели о ситуации, обратитесь в ЛС: [id{ADMIN_ID}|Владелец]")
+                                f"Если вы не согласны с выдачей ЧС, обратитесь в ЛС: [id{ADMIN_ID}|Владелец]")
                     send_msg(target_user, ban_text)
                     send_msg(ADMIN_ID, f"⛔ Пользователь [id{target_user}|Игрок] отправлен в ЧС. Репорт закрыт.", keyboard=get_main_kb())
                     vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Бан выдан"}))
@@ -379,12 +377,13 @@ try:
                 else:
                     time_left = f"{seconds_left // 86400} дн."
 
+                # ЗАМЕНЕНО ЗДЕСЬ
                 ban_text = (f"⛔ **ВЫ НАХОДИТЕСЬ В ЧС (ЧЕРНОМ СПИСКЕ)!**\n\n"
                             f"Причина: Спам / Нарушение правил.\n"
                             f"Кто выдал: [id{ADMIN_ID}|Администратор].\n"
                             f"Осталось: {time_left}\n\n"
                             f"Бот полностью игнорирует ваши команды.\n"
-                            f"Если вы пожалели о ситуации, напишите напрямую в ЛС: [id{ADMIN_ID}|Владелец]")
+                            f"Если вы не согласны с выдачей ЧС, напишите напрямую в ЛС: [id{ADMIN_ID}|Владелец]")
                 send_msg(peer_id, ban_text)
                 continue 
             # =========================================================
