@@ -1,6 +1,6 @@
 import vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType
-import json, random
+import json, random, sqlite3, time, requests
 
 # ===== ТОКЕН =====
 TOKEN = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMbjdYBmf-QH6dwf-ZL4dMYkKMEEiviqU5GPmM5kaG4Xt535Hb1ApvImzJkk_cq-Q7ZxOQYVPbnULj0Fg6U0yDNSPgLwANkGKX348kTlENY6s99NOBeUO-e486DAX-0XtbAa3tmQdMYjF2GLxluGvHrhFHhvr5YCuDXfYxTgw5cYo"
@@ -18,7 +18,6 @@ waiting_for_manual_reply = {}
 reports = {} 
 users_in_report = set() 
 
-# --- БАЗА ДАННЫХ ---
 def init_db():
     conn = sqlite3.connect('super_bot.db')
     c = conn.cursor()
@@ -142,7 +141,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (Стабильная версия без загрузок)!")
+print("БОТ ЗАПУЩЕН!")
 
 try:
     longpoll = VkLongPoll(vk_session)
@@ -153,19 +152,16 @@ try:
             text = event.text.strip()
             text_lower = text.lower()
 
-            # Если написали "Начать"
             if text_lower == "начать" or text_lower == "start":
                 send(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
                 continue
 
-            # === ИСПРАВЛЕНИЕ БАГА С "НАЗАД" В РЕПОРТАХ ===
             if user_id in waiting_for_manual_report:
                 if text_lower == "⬅️ назад" or text_lower == "назад":
                     waiting_for_manual_report.remove(user_id)
                     send(peer_id, "Вы вернулись в главное меню.", keyboard=get_main_kb())
                     continue
                 else:
-                    # Отправляем репорт админу
                     support_text = f"🆘 **Репорт от** [id{user_id}|Игрок]:\n\n{text}"
                     msg_res = send(ADMIN_ID, support_text, keyboard=get_report_kb())
                     if msg_res: 
@@ -175,7 +171,6 @@ try:
                     waiting_for_manual_report.remove(user_id)
                     continue
 
-            # ОТВЕТ АДМИНА НА РЕПОРТ
             if user_id == ADMIN_ID and ADMIN_ID in waiting_for_manual_reply:
                 target_user_id = waiting_for_manual_reply[ADMIN_ID]
                 send(target_user_id, f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n{text}", keyboard=get_main_kb())
@@ -219,7 +214,6 @@ try:
                     send(peer_id, "Вы вернулись в главное меню.", keyboard=get_main_kb())
                     continue
                 
-                # Если это шаблон
                 support_text = f"🆘 **Репорт от** [id{user_id}|Игрок]:\n\n{text}"
                 msg_res = send(ADMIN_ID, support_text, keyboard=get_report_kb())
                 if msg_res: 
@@ -229,7 +223,6 @@ try:
                 waiting_for_support.remove(user_id)
                 continue
 
-            # СТАТИСТИКА
             if text_lower == "стата" and user_id == ADMIN_ID:
                 conn = sqlite3.connect('super_bot.db')
                 c = conn.cursor()
@@ -244,7 +237,6 @@ try:
                 send(peer_id, stats_text)
                 continue
 
-            # ЧС И ПОДПИСКА
             warns, ban_until, uploads = get_user_data(user_id)
             current_time = int(time.time())
 
@@ -256,7 +248,6 @@ try:
                 send(peer_id, f"🔒 **Доступ ограничен!**\nПодпишись: {GROUP_LINK}")
                 continue
 
-            # ОБРАБОТКА ФОТО/ВИДЕО
             if peer_id in waiting_mode:
                 try:
                     msg_info = vk.messages.getById(message_ids=event.message_id)
@@ -308,7 +299,6 @@ try:
                 if peer_id in waiting_mode: del waiting_mode[peer_id]
                 continue
 
-            # КНОПКИ МЕНЮ
             if "видео" in text_lower:
                 waiting_mode[peer_id] = 'video'
                 send(peer_id, "🎬 **Отправь мне видео!**", keyboard=get_main_kb())
