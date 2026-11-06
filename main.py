@@ -2,9 +2,6 @@ import vk_api
 from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
 import json, random, sqlite3, time, requests
 
-# Запоминаем время запуска бота для команды /ping
-START_TIME = time.time()
-
 # ===== ТОКЕН =====
 TOKEN = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMbjdYBmf-QH6dwf-ZL4dMYkKMEEiviqU5GPmM5kaG4Xt535Hb1ApvImzJkk_cq-Q7ZxOQYVPbnULj0Fg6U0yDNSPgLwANkGKX348kTlENY6s99NOBeUO-e486DAX-0XtbAa3tmQdMYjF2GLxluGvHrhFHhvr5YCuDXfYxTgw5cYo"
 ADMIN_ID = 200005093141
@@ -218,26 +215,10 @@ try:
             is_ls = (peer_id == user_id)
 
             # =========================================================
-            # 🚀 БЫСТРАЯ КОМАНДА /PING (ОДНО СООБЩЕНИЕ, БЕЗ ЗАДЕРЖЕК)
+            # 🚀 КОМАНДА ПИНГ (ТОЛЬКО СЛОВО ПОНГ)
             # =========================================================
             if text_lower in ["пинг", "ping", "/ping", "/пинг", "!ping", "!пинг"]:
-                now = time.time()
-                event_latency = now - msg.get('date', now) 
-                if event_latency < 0: event_latency = 0
-                
-                uptime_seconds = int(now - START_TIME)
-                days = uptime_seconds // 86400
-                hours = (uptime_seconds % 86400) // 3600
-                minutes = (uptime_seconds % 3600) // 60
-                uptime_str = f"{days} д. {hours} ч. {minutes} м."
-
-                # Отправляем одно единственное сообщение (без "Понг..." отдельно)
-                ping_text = (
-                    f"🏓 **Понг!**\n"
-                    f"Задержка события: {int(event_latency * 1000)} мс\n"
-                    f"Время работы бота: {uptime_str}"
-                )
-                send_msg(peer_id, ping_text, keyboard=None)
+                send_msg(peer_id, "🏓 Понг!", keyboard=None)
                 continue 
             # =========================================================
 
