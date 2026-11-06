@@ -297,7 +297,40 @@ try:
                 continue 
 
             # =========================================================
-            # 🛑 САМАЯ ПЕРВАЯ ПРОВЕРКА: НАХОДИТСЯ ЛИ ОН В ЧС?
+            # 👑 КОМАНДЫ АДМИНИСТРАТОРА (Снятие ЧС)
+            # =========================================================
+            if user_id == ADMIN_ID:
+                if "снять чс" in text_lower or "разбан" in text_lower:
+                    target_user = None
+                    # 1. Проверяем, есть ли ответ на сообщение (Reply)
+                    if 'reply_message' in msg:
+                        target_user = msg['reply_message']['from_id']
+                    else:
+                        # 2. Ищем ID в тексте (например, id123456 или просто цифры)
+                        match = re.search(r'id(\d+)', text_lower)
+                        if match:
+                            target_user = int(match.group(1))
+                        else:
+                            match = re.search(r'\d{5,}', text)
+                            if match:
+                                target_user = int(match.group(0))
+                    
+                    if target_user:
+                        conn = sqlite3.connect('super_bot.db')
+                        c = conn.cursor()
+                        c.execute("UPDATE users SET warns = 0, ban_until = 0 WHERE user_id = ?", (target_user,))
+                        conn.commit()
+                        conn.close()
+                        
+                        send_msg(ADMIN_ID, f"✅ С пользователя [id{target_user}|Игрок] успешно снят ЧС и обнулены варны!", keyboard=get_main_kb())
+                        send_msg(target_user, "✅ **Администратор снял с вас ЧС и обнулил предупреждения!**\n\nБот снова готов с вами работать.")
+                    else:
+                        send_msg(ADMIN_ID, "❌ Напиши так: `Снять ЧС @id123456` (или ответь на сообщение игрока).", keyboard=get_main_kb())
+                    continue
+            # =========================================================
+
+            # =========================================================
+            # 🛑 ПРОВЕРКА НА ЧС
             # =========================================================
             warns, ban_until, uploads = get_user_data(user_id)
             current_time = int(time.time())
@@ -344,40 +377,6 @@ try:
             if text_lower == "начать" or text_lower == "start":
                 send_msg(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
                 continue
-
-            # =========================================================
-            # 👑 КОМАНДЫ АДМИНИСТРАТОРА (Снятие ЧС и т.д.)
-            # =========================================================
-            if user_id == ADMIN_ID:
-                # СНЯТИЕ ЧС
-                if text_lower.startswith("снять чс") or text_lower.startswith("разбан"):
-                    target_user = None
-                    # 1. Проверяем, есть ли ответ на сообщение (Reply)
-                    if 'reply_message' in msg:
-                        target_user = msg['reply_message']['from_id']
-                    else:
-                        # 2. Ищем ID в тексте (например, id123456 или просто цифры)
-                        match = re.search(r'id(\d+)', text_lower)
-                        if match:
-                            target_user = int(match.group(1))
-                        else:
-                            match = re.search(r'\d{5,}', text)
-                            if match:
-                                target_user = int(match.group(0))
-                    
-                    if target_user:
-                        conn = sqlite3.connect('super_bot.db')
-                        c = conn.cursor()
-                        c.execute("UPDATE users SET warns = 0, ban_until = 0 WHERE user_id = ?", (target_user,))
-                        conn.commit()
-                        conn.close()
-                        
-                        send_msg(ADMIN_ID, f"✅ С пользователя [id{target_user}|Игрок] успешно снят ЧС и обнулены варны!", keyboard=get_main_kb())
-                        send_msg(target_user, "✅ **Администратор снял с вас ЧС и обнулил предупреждения!**\n\nБот снова готов с вами работать.")
-                    else:
-                        send_msg(ADMIN_ID, "❌ Ошибка: Не удалось найти ID. Ответьте на сообщение игрока или напишите 'снять чс id123456'.", keyboard=get_main_kb())
-                    continue
-            # =========================================================
 
             # --- ОТВЕТ АДМИНА НА РЕПОРТ ---
             if user_id == ADMIN_ID and ADMIN_ID in waiting_for_manual_reply:
