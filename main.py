@@ -66,17 +66,16 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
-# --- ФУНКЦИЯ СОКРАЩЕНИЯ ССЫЛКИ (ЧЕРЕЗ ЯНДЕКС) ---
+# --- ФУНКЦИЯ СОКРАЩЕНИЯ (БЕЗ HTTPS) ---
 def shorten_link(url):
     try:
-        # Сокращаем через Яндекс (clck.ru)
         res = requests.get(f"https://clck.ru/--?url={url}", timeout=5)
         if res.status_code == 200 and "http" in res.text:
-            # Убираем https:// из готовой ссылки
+            # Убираем https:// и http://
             clean_url = res.text.strip().replace('https://', '').replace('http://', '')
             return clean_url
     except: pass
-    return url
+    return url.replace('https://', '').replace('http://', '')
 
 # --- КЛАВИАТУРЫ ---
 def get_main_kb():
@@ -153,7 +152,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (Короткие ссылки через Яндекс)!")
+print("БОТ ЗАПУЩЕН (Ссылки clck.ru)!")
 
 try:
     longpoll = VkLongPoll(vk_session)
@@ -308,7 +307,8 @@ try:
                                 for i, link in enumerate(links, 1):
                                     short_link = shorten_link(link)
                                     final_text += f"🔗 Фото {i}: {short_link}\n\n"
-                                final_text += "💾 *Скопируй ссылки и открой в браузере.*"
+                                # Точно такой же текст, как у одного фото
+                                final_text += "💾 **Как сохранить:**\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить»."
                                 send(peer_id, final_text, keyboard=get_main_kb())
                             else:
                                 send(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
