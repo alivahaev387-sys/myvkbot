@@ -71,10 +71,9 @@ def shorten_link(url):
     except: pass
     return url.replace('https://', '').replace('http://', '')
 
-# --- ФУНКЦИЯ ОТПРАВКИ СООБЩЕНИЙ (ДОБАВЛЕНО) ---
+# --- ФУНКЦИЯ ОТПРАВКИ (ДОБАВЛЕНА, ЧТОБЫ БОТ НЕ ПАДАЛ) ---
 def send_msg(peer_id, message, keyboard=None):
     try:
-        # random_id нужен, чтобы ВК не отправлял одинаковые сообщения несколько раз
         random_id = random.randint(1, 2**31 - 1)
         params = {
             'peer_id': peer_id,
@@ -83,10 +82,9 @@ def send_msg(peer_id, message, keyboard=None):
         }
         if keyboard:
             params['keyboard'] = keyboard
-        # Возвращаем ID сообщения (он нужен для сохранения в reports)
         return vk.messages.send(**params)
     except Exception as e:
-        print(f"Ошибка при отправке сообщения: {e}")
+        print(f"Ошибка при отправке: {e}")
         return None
 
 # --- КЛАВИАТУРЫ ---
@@ -421,6 +419,13 @@ try:
             elif "статистика" in text_lower:
                 send_msg(peer_id, f"📊 **Загружено:** {uploads}", keyboard=get_main_kb())
             
+            # ===== ДОБАВЛЕНА КОМАНДА ПИНГ (АККУРАТНО, В САМОМ НИЗУ) =====
+            elif text_lower in ["пинг", "ping", "пинк"]:
+                ping_ms = int((time.time() - msg.get('date', time.time())) * 1000)
+                if ping_ms < 0: ping_ms = 0
+                send_msg(peer_id, f"🏓 **Понг!**\nВаш пинг: {ping_ms} мс", keyboard=get_main_kb())
+            # ============================================================
+
             elif "помощь" in text_lower:
                 help_text = "📖 Как пользоваться ботом:\n1. Жми 'Загрузить фото'.\n2. Отправь картинку.\n3. Получи ссылку."
                 send_msg(peer_id, help_text, keyboard=get_help_kb())
