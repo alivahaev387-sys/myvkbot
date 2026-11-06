@@ -1,6 +1,7 @@
 import vk_api
 from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
 import json, random, sqlite3, time, requests, re
+import threading # Добавлено для фонового снятия бана
 
 # ===== ТОКЕН =====
 TOKEN = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMbjdYBmf-QH6dwf-ZL4dMYkKMEEiviqU5GPmM5kaG4Xt535Hb1ApvImzJkk_cq-Q7ZxOQYVPbnULj0Fg6U0yDNSPgLwANkGKX348kTlENY6s99NOBeUO-e486DAX-0XtbAa3tmQdMYjF2GLxluGvHrhFHhvr5YCuDXfYxTgw5cYo"
@@ -65,15 +66,6 @@ def add_warn(user_id):
     return new_warns
 
 init_db()
-
-# --- СОКРАЩЕНИЕ ССЫЛОК ---
-def shorten_link(url):
-    try:
-        res = vk.utils.getShortLink(url=url)
-        if 'short_url' in res:
-            return res['short_url'].replace('https://', '').replace('http://', '')
-    except: pass
-    return url.replace('https://', '').replace('http://', '')
 
 # --- ФУНКЦИЯ ОТПРАВКИ ---
 def send_msg(peer_id, message, keyboard=None):
@@ -164,6 +156,44 @@ def get_ban_time_kb(target_user, report_id):
             [{"action": {"type": "callback", "label": "❌ Отмена (Разбан)", "payload": json.dumps({"cmd": "cancel_ban", "target_id": target_user, "report_id": report_id})}, "color": "secondary"}]
         ]
     }, ensure_ascii=False)
+
+# --- ФОНОВЫЙ ПРОЦЕСС: АВТОМАТИЧЕСКОЕ СНЯТИЕ ЧС ---
+def auto_unban_checker():
+    while True:
+        try:
+            conn = sqlite3.connect('super_bot.db')
+            c = conn.cursor()
+            now = int(time.time())
+            
+            # Ищем тех, у кого время бана вышло, но бан еще записан
+            c.execute("SELECT user_id FROM users WHERE ban_until > 0 AND ban_until <= ?", (now,))
+            expired_users = c.fetchall()
+
+            for (user_id,) in expired_users:
+                # Снимаем бан в БД
+                c.execute("UPDATE users SET ban_until = 0 WHERE user_id = ?", (user_id,))
+                conn.commit()
+
+                # Отправляем красивое приветствие
+                unban_text = (
+                    f"🎉 **ПРИВЕТСТВУЕМ СНОВА!** 🎉\n\n"
+                    f"С вас был автоматически снят ЧС (Черный список).\n"
+                    f"⏳ Время наказания истекло.\n\n"
+                    f"⚠️ **Пожалуйста, больше не нарушайте правила и не спамьте.** "
+                    f"Следующий бан может быть выдан навсегда!\n\n"
+                    f"Бот снова готов с вами работать. Выбирай действие на кнопках 👇"
+                )
+                send_msg(user_id, unban_text, keyboard=get_main_kb())
+                
+            conn.close()
+        except Exception as e:
+            print(f"Ошибка в авто-разбане: {e}")
+        
+        time.sleep(10) # Проверка каждые 10 секунд
+
+# Запускаем фоновый поток
+threading.Thread(target=auto_unban_checker, daemon=True).start()
+# ==================================================
 
 print("БОТ ЗАПУЩЕН (Умная система оценок)!")
 
@@ -302,11 +332,9 @@ try:
             if user_id == ADMIN_ID:
                 if "снять чс" in text_lower or "разбан" in text_lower:
                     target_user = None
-                    # 1. Проверяем, есть ли ответ на сообщение (Reply)
                     if 'reply_message' in msg:
                         target_user = msg['reply_message']['from_id']
                     else:
-                        # 2. Ищем ID в тексте (например, id123456 или просто цифры)
                         match = re.search(r'id(\d+)', text_lower)
                         if match:
                             target_user = int(match.group(1))
