@@ -66,18 +66,18 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
-# --- ТОЛЬКО СОКРАЩЕНИЕ ЧЕРЕЗ ВК (БЕЗ HTTPS) ---
+# --- ФУНКЦИЯ СОКРАЩЕНИЯ (ТОЛЬКО ЧЕРЕЗ ВК) ---
 def shorten_link(url):
     try:
-        # Сокращаем через ВК
+        # Используем ТОЛЬКО официальный сокращатель ВК
         res = vk.utils.getShortLink(url=url)
         if 'short_url' in res:
-            # Убираем https://
+            # Убираем https:// и http://
             clean_url = res['short_url'].replace('https://', '').replace('http://', '')
             return clean_url
-    except: 
-        pass
-    # Если ВК не смог, возвращаем ссылку без https
+    except Exception as e: 
+        print("Ошибка сокращения ВК:", e)
+    # Если ВК не смог, просто убираем https
     return url.replace('https://', '').replace('http://', '')
 
 # --- КЛАВИАТУРЫ ---
@@ -155,7 +155,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (Все ссылки vk.cc)!")
+print("БОТ ЗАПУЩЕН (Все ссылки через ВК)!")
 
 try:
     longpoll = VkLongPoll(vk_session)
@@ -262,7 +262,6 @@ try:
                 send(peer_id, f"🔒 **Доступ ограничен!**\nПодпишись: {GROUP_LINK}")
                 continue
 
-            # ОБРАБОТКА ФОТО/ВИДЕО
             if peer_id in waiting_mode:
                 try:
                     msg_info = vk.messages.getById(message_ids=event.message_id)
@@ -309,6 +308,7 @@ try:
                                 for i, link in enumerate(links, 1):
                                     short_link = shorten_link(link)
                                     final_text += f"🔗 Фото {i}: {short_link}\n\n"
+                                # ТОЧНО ТАКОЙ ЖЕ ТЕКСТ КАК У ОДНОГО ФОТО
                                 final_text += "💾 **Как сохранить:**\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить»."
                                 send(peer_id, final_text, keyboard=get_main_kb())
                             else:
@@ -317,7 +317,6 @@ try:
                 if peer_id in waiting_mode: del waiting_mode[peer_id]
                 continue
 
-            # КНОПКИ МЕНЮ
             if "видео" in text_lower:
                 waiting_mode[peer_id] = 'video'
                 send(peer_id, "🎬 **Отправь мне видео!**", keyboard=get_main_kb())
