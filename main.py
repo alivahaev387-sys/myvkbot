@@ -66,15 +66,18 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
-# --- ФУНКЦИЯ СОКРАЩЕНИЯ (БЕЗ HTTPS) ---
+# --- ТОЛЬКО СОКРАЩЕНИЕ ЧЕРЕЗ ВК (БЕЗ HTTPS) ---
 def shorten_link(url):
     try:
-        res = requests.get(f"https://clck.ru/--?url={url}", timeout=5)
-        if res.status_code == 200 and "http" in res.text:
-            # Убираем https:// и http://
-            clean_url = res.text.strip().replace('https://', '').replace('http://', '')
+        # Сокращаем через ВК
+        res = vk.utils.getShortLink(url=url)
+        if 'short_url' in res:
+            # Убираем https://
+            clean_url = res['short_url'].replace('https://', '').replace('http://', '')
             return clean_url
-    except: pass
+    except: 
+        pass
+    # Если ВК не смог, возвращаем ссылку без https
     return url.replace('https://', '').replace('http://', '')
 
 # --- КЛАВИАТУРЫ ---
@@ -152,7 +155,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (Ссылки clck.ru)!")
+print("БОТ ЗАПУЩЕН (Все ссылки vk.cc)!")
 
 try:
     longpoll = VkLongPoll(vk_session)
@@ -167,7 +170,6 @@ try:
                 send(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
                 continue
 
-            # ИСПРАВЛЕНИЕ БАГА С "НАЗАД" В РЕПОРТАХ
             if user_id in waiting_for_manual_report:
                 if text_lower == "⬅️ назад" or text_lower == "назад":
                     waiting_for_manual_report.remove(user_id)
@@ -307,7 +309,6 @@ try:
                                 for i, link in enumerate(links, 1):
                                     short_link = shorten_link(link)
                                     final_text += f"🔗 Фото {i}: {short_link}\n\n"
-                                # Точно такой же текст, как у одного фото
                                 final_text += "💾 **Как сохранить:**\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить»."
                                 send(peer_id, final_text, keyboard=get_main_kb())
                             else:
