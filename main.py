@@ -51,7 +51,8 @@ def add_upload(user_id):
     conn.commit()
     conn.close()
 
-def add_warn_and_check_ban(user_id):
+# Теперь варн просто добавляется, без автобана
+def add_warn(user_id):
     conn = sqlite3.connect('super_bot.db')
     c = conn.cursor()
     c.execute("SELECT warns FROM users WHERE user_id = ?", (user_id,))
@@ -59,19 +60,10 @@ def add_warn_and_check_ban(user_id):
     current_warns = row[0] if row else 0
     
     new_warns = current_warns + 1
-    ban_time = 0
-    is_banned = False
-    
-    if new_warns >= 3:
-        ban_time = int(time.time()) + 315360000 # Бан на 10 лет
-        c.execute("UPDATE users SET warns = 0, ban_until = ? WHERE user_id = ?", (ban_time, user_id)) 
-        is_banned = True
-    else:
-        c.execute("UPDATE users SET warns = ? WHERE user_id = ?", (new_warns, user_id))
-        
+    c.execute("UPDATE users SET warns = ? WHERE user_id = ?", (new_warns, user_id))
     conn.commit()
     conn.close()
-    return new_warns, is_banned
+    return new_warns
 
 init_db()
 
@@ -162,6 +154,19 @@ def get_admin_report_kb(report_id, target_user_id):
         ]
     }, ensure_ascii=False)
 
+# Кнопки выбора времени бана
+def get_ban_time_kb(target_user, report_id):
+    return json.dumps({
+        "inline": True,
+        "buttons": [
+            [{"action": {"type": "callback", "label": "1 Мин", "payload": json.dumps({"cmd": "set_ban", "target_id": target_user, "report_id": report_id, "time": 60})}, "color": "secondary"},
+             {"action": {"type": "callback", "label": "1 Час", "payload": json.dumps({"cmd": "set_ban", "target_id": target_user, "report_id": report_id, "time": 3600})}, "color": "primary"}],
+            [{"action": {"type": "callback", "label": "1 День", "payload": json.dumps({"cmd": "set_ban", "target_id": target_user, "report_id": report_id, "time": 86400})}, "color": "primary"},
+             {"action": {"type": "callback", "label": "7 Дней", "payload": json.dumps({"cmd": "set_ban", "target_id": target_user, "report_id": report_id, "time": 604800})}, "color": "negative"}],
+            [{"action": {"type": "callback", "label": "❌ Отмена (Разбан)", "payload": json.dumps({"cmd": "cancel_ban", "target_id": target_user, "report_id": report_id})}, "color": "secondary"}]
+        ]
+    }, ensure_ascii=False)
+
 print("БОТ ЗАПУЩЕН (Умная система оценок)!")
 
 try:
@@ -182,13 +187,13 @@ try:
             # Обработка кнопок Админа в репорте
             if user_id == ADMIN_ID:
                 report_id = payload.get("report_id")
+                target_user = payload.get("target_id")
                 
                 if payload.get("cmd") == "admin_reply":
                     if report_id not in active_reports:
-                        vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "❌ Этот репорт уже закрыт или помечен как спам!"}))
+                        vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "❌ Этот репорт уже закрыт!"}))
                         continue
                         
-                    target_user = payload.get("target_id")
                     waiting_for_manual_reply[ADMIN_ID] = {"target_user": target_user, "report_id": report_id}
                     send_msg(ADMIN_ID, f"✍️ **Репорт #{report_id}**\nНапиши текст ответа для [id{target_user}|Игрока]:", keyboard=get_main_kb())
                     vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Напиши ответ в чат"}))
@@ -199,50 +204,79 @@ try:
                         vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Этот репорт уже обработан!"}))
                         continue
                         
-                    target_user = payload.get("target_id")
+                    new_warns = add_warn(target_user)
                     
-                    del active_reports[report_id]
-                    users_in_report.discard(target_user)
-                    
-                    if ADMIN_ID in waiting_for_manual_reply:
-                        if waiting_for_manual_reply[ADMIN_ID]["report_id"] == report_id:
-                            del waiting_for_manual_reply[ADMIN_ID]
-                            send_msg(ADMIN_ID, "❌ Вы пометили репорт как спам. Ожидание ответа отменено.")
+                    # Если 3 или больше варнов - предлагаем выбрать бан
+                    if new_warns >= 3:
+                        # Отменяем ожидание ответа, если оно было
+                        if ADMIN_ID in waiting_for_manual_reply:
+                            if waiting_for_manual_reply[ADMIN_ID]["report_id"] == report_id:
+                                del waiting_for_manual_reply[ADMIN_ID]
 
-                    new_warns, is_banned = add_warn_and_check_ban(target_user)
+                        ban_menu_text = f"⚠️ Пользователь [id{target_user}|Игрок] достиг лимита (3/3)!\n\nВыберите срок ЧС (бана):"
+                        send_msg(ADMIN_ID, ban_menu_text, keyboard=get_ban_time_kb(target_user, report_id))
+                        
+                        # Удаляем из активных и убираем репорт, чтобы не мешал
+                        del active_reports[report_id]
+                        users_in_report.discard(target_user)
+                        try:
+                            vk.messages.delete(message_ids=event.object.conversation_message_id, delete_for_all=1)
+                        except: pass
+                        
+                        vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Выберите срок бана"}))
+                        continue
                     
-                    if is_banned:
-                        admin_msg = f"⛔ Пользователь [id{target_user}|Игрок] отправлен в ЧС за 3 спама. Репорт #{report_id} удален."
-                        # Очищаем состояния игрока, чтобы он не мог ничего делать
-                        waiting_for_support.discard(target_user)
-                        waiting_for_manual_report.discard(target_user)
-                        waiting_for_rating.discard(target_user)
-                        if target_user in waiting_mode: del waiting_mode[target_user]
+                    # Если меньше 3 - просто предупреждение
                     else:
                         admin_msg = f"⚠️ Пользователь [id{target_user}|Игрок] получил предупреждение ({new_warns}/3). Репорт #{report_id} удален."
-                    
-                    send_msg(ADMIN_ID, admin_msg)
-                    
-                    if is_banned:
-                        spam_text = (f"⛔ **ВЫ БЫЛИ АВТОМАТИЧЕСКИ ЗАБЛОКИРОВАНЫ!**\n\n"
-                                     f"Причина: Систематический спам (3/3).\n"
-                                     f"Кто выдал: [id{ADMIN_ID}|Администратор].\n\n"
-                                     f"Если вы пожалели о ситуации, обратитесь в ЛС: [id{ADMIN_ID}|Владелец]")
-                    else:
+                        send_msg(ADMIN_ID, admin_msg)
+                        
                         spam_text = (f"🚫 **ВАШ РЕПОРТ ОТКЛОНЕН!**\n\n"
                                      f"Причина: СПАМ.\n"
                                      f"Ваш счет: {new_warns}/3.\n"
                                      f"⚠️ **При 3-х предупреждениях вы будете автоматически отправлены в ЧС!**\n\n"
                                      f"Кто выдал: [id{ADMIN_ID}|Администратор].\n"
                                      f"Если вы пожалели о ситуации, обратитесь через ЛС: [id{ADMIN_ID}|Владелец]")
+                        send_msg(target_user, spam_text)
+                        
+                        del active_reports[report_id]
+                        users_in_report.discard(target_user)
+                        try:
+                            vk.messages.delete(message_ids=event.object.conversation_message_id, delete_for_all=1)
+                        except: pass
+                        
+                        vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Спам обработан"}))
+                        continue
+
+                # --- ОБРАБОТКА ВЫБОРА ВРЕМЕНИ БАНА ---
+                elif payload.get("cmd") == "set_ban":
+                    ban_seconds = payload.get("time")
                     
-                    send_msg(target_user, spam_text)
+                    # Записываем бан в БД и обнуляем варны
+                    conn = sqlite3.connect('super_bot.db')
+                    c = conn.cursor()
+                    ban_until = int(time.time()) + int(ban_seconds)
+                    c.execute("UPDATE users SET warns = 0, ban_until = ? WHERE user_id = ?", (ban_until, target_user))
+                    conn.commit()
+                    conn.close()
+
+                    # Текст для игрока
+                    ban_text = (f"⛔ **ВЫ БЫЛИ АВТОМАТИЧЕСКИ ЗАБЛОКИРОВАНЫ!**\n\n"
+                                f"Причина: Систематический спам (3/3).\n"
+                                f"Кто выдал: [id{ADMIN_ID}|Администратор].\n\n"
+                                f"Если вы пожалели о ситуации, обратитесь в ЛС: [id{ADMIN_ID}|Владелец]")
+                    send_msg(target_user, ban_text)
+
+                    # Уведомляем тебя
+                    send_msg(ADMIN_ID, f"⛔ Пользователь [id{target_user}|Игрок] отправлен в ЧС. Репорт закрыт.", keyboard=get_main_kb())
                     
-                    try:
-                        vk.messages.delete(message_ids=event.object.conversation_message_id, delete_for_all=1)
-                    except: pass
-                    
-                    vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Спам обработан, репорт закрыт"}))
+                    vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Бан выдан"}))
+                    continue
+
+                # --- ОТМЕНА БАНА ---
+                elif payload.get("cmd") == "cancel_ban":
+                    send_msg(ADMIN_ID, f"✅ Вы отменили бан для [id{target_user}|Игрока].", keyboard=get_main_kb())
+                    vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Бан отменен"}))
                     continue
 
             # Логика оценки
@@ -283,21 +317,30 @@ try:
             current_time = int(time.time())
 
             if ban_until > current_time:
-                # Если он в ЧС, стираем все его состояния
                 if peer_id in waiting_mode: del waiting_mode[peer_id]
                 waiting_for_support.discard(user_id)
                 waiting_for_manual_report.discard(user_id)
                 waiting_for_rating.discard(user_id)
                 
-                days_left = (ban_until - current_time) // 86400
+                # Считаем остаток
+                seconds_left = ban_until - current_time
+                if seconds_left < 60:
+                    time_left = f"{seconds_left} сек."
+                elif seconds_left < 3600:
+                    time_left = f"{seconds_left // 60} мин."
+                elif seconds_left < 86400:
+                    time_left = f"{seconds_left // 3600} ч."
+                else:
+                    time_left = f"{seconds_left // 86400} дн."
+
                 ban_text = (f"⛔ **ВЫ НАХОДИТЕСЬ В ЧС (ЧЕРНОМ СПИСКЕ)!**\n\n"
-                            f"Причина: Спам / Нарушение правил бота.\n"
+                            f"Причина: Спам / Нарушение правил.\n"
                             f"Кто выдал: [id{ADMIN_ID}|Администратор].\n"
-                            f"Осталось: {days_left} дн.\n\n"
+                            f"Осталось: {time_left}\n\n"
                             f"Бот полностью игнорирует ваши команды.\n"
                             f"Если вы пожалели о ситуации, напишите напрямую в ЛС: [id{ADMIN_ID}|Владелец]")
                 send_msg(peer_id, ban_text)
-                continue # ЖЕСТКО ПРЕРЫВАЕМ выполнение, чтобы он не загрузил фото
+                continue 
             # =========================================================
 
             # КОМАНДА ПИНГ
@@ -313,7 +356,6 @@ try:
                 send_msg(peer_id, ping_text, keyboard=None)
                 continue 
 
-            # ДАЛЬШЕ ТОЛЬКО ДЛЯ ТЕХ, КТО НЕ В ЧС
             if text_lower == "начать" or text_lower == "start":
                 send_msg(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
                 continue
@@ -325,7 +367,7 @@ try:
                 report_id = reply_data["report_id"]
                 
                 if report_id not in active_reports:
-                    send_msg(ADMIN_ID, f"❌ Ошибка: Репорт #{report_id} уже был закрыт или помечен как спам. Ответ не отправлен.", keyboard=get_main_kb())
+                    send_msg(ADMIN_ID, f"❌ Ошибка: Репорт #{report_id} уже закрыт. Ответ не отправлен.", keyboard=get_main_kb())
                     del waiting_for_manual_reply[ADMIN_ID]
                     continue
 
@@ -350,11 +392,10 @@ try:
                         
                         if 1 <= rating <= 3:
                             user_msg = (f"😔 **Спасибо за отзыв (Оценка: {rating}/10).**\n\n"
-                                        f"Нам очень жаль, что мы не смогли решить вашу проблему идеально. "
-                                        f"Мы постараемся стать лучше!\n\n🔒 *Репорт закрыт.*")
+                                        f"Нам очень жаль, что мы не смогли решить вашу проблему идеально.\n\n🔒 *Репорт закрыт.*")
                         elif 4 <= rating <= 7:
                             user_msg = (f"🙂 **Спасибо за отзыв (Оценка: {rating}/10).**\n\n"
-                                        f"Мы рады, что смогли вам помочь! Если остались вопросы, обращайтесь.\n\n🔒 *Репорт закрыт.*")
+                                        f"Мы рады, что смогли вам помочь!\n\n🔒 *Репорт закрыт.*")
                         else: 
                             user_msg = (f"🤩 **Огромное спасибо! (Оценка: {rating}/10)**\n\n"
                                         f"Мы очень рады, что вам всё понравилось!\n\n🔒 *Репорт закрыт.*")
