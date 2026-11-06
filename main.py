@@ -154,13 +154,13 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-# Кнопки для оценки (Инлайн)
-def get_rating_kb():
+# Кнопки для оценки (Теперь передаем ID пользователя в payload)
+def get_rating_kb(target_user_id):
     return json.dumps({
         "inline": True,
         "buttons": [
-            [{"action": {"type": "callback", "label": "⭐ Оценить работу", "payload": json.dumps({"cmd": "rate_report"})}, "color": "positive"},
-             {"action": {"type": "callback", "label": "❌ Закрыть вопрос", "payload": json.dumps({"cmd": "close_report"})}, "color": "negative"}]
+            [{"action": {"type": "callback", "label": "⭐ Оценить работу", "payload": json.dumps({"cmd": "rate_report", "target_id": target_user_id})}, "color": "positive"},
+             {"action": {"type": "callback", "label": "❌ Закрыть вопрос", "payload": json.dumps({"cmd": "close_report", "target_id": target_user_id})}, "color": "negative"}]
         ]
     }, ensure_ascii=False)
 
@@ -175,6 +175,12 @@ try:
             peer_id = event.object.peer_id
             event_id = event.object.event_id
             
+            # ПРОВЕРКА: ТОТ ЛИ ЧЕЛОВЕК НАЖАЛ КНОПКУ?
+            target_id = payload.get("target_id")
+            if target_id and user_id != target_id:
+                vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Эта кнопка не для вас!"}))
+                continue
+
             if payload.get("cmd") == "rate_report":
                 if user_id in users_in_report:
                     waiting_for_rating.add(user_id)
@@ -279,7 +285,8 @@ try:
             # 6. АДМИН ПИШЕТ РУЧНОЙ ОТВЕТ
             if user_id == ADMIN_ID and ADMIN_ID in waiting_for_manual_reply:
                 target_user_id = waiting_for_manual_reply[ADMIN_ID]
-                send_msg(target_user_id, f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n{text}", keyboard=get_rating_kb())
+                # Передаем ID игрока в кнопки
+                send_msg(target_user_id, f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n{text}", keyboard=get_rating_kb(target_user_id))
                 send_msg(ADMIN_ID, f"✅ Ответ доставлен [id{target_user_id}|Игроку]. Ожидайте от него оценку.", keyboard=get_main_kb())
                 del waiting_for_manual_reply[ADMIN_ID]
                 continue
@@ -309,7 +316,8 @@ try:
             if user_id == ADMIN_ID and ADMIN_ID in waiting_for_reply:
                 if text_lower in ["✅ исправлено, проверяй", "⏳ скоро починим", "📱 скачай с компа", "🔄 попробуй еще раз"]:
                     target_user_id = waiting_for_reply[ADMIN_ID]
-                    send_msg(target_user_id, f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n{text}", keyboard=get_rating_kb())
+                    # Передаем ID игрока в кнопки
+                    send_msg(target_user_id, f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n{text}", keyboard=get_rating_kb(target_user_id))
                     send_msg(ADMIN_ID, f"✅ Ответ доставлен [id{target_user_id}|Игроку].", keyboard=get_main_kb())
                     del waiting_for_reply[ADMIN_ID] 
                 continue
