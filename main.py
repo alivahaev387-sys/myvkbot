@@ -6,7 +6,6 @@ import json, random, sqlite3, time, requests
 TOKEN = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMbjdYBmf-QH6dwf-ZL4dMYkKMEEiviqU5GPmM5kaG4Xt535Hb1ApvImzJkk_cq-Q7ZxOQYVPbnULj0Fg6U0yDNSPgLwANkGKX348kTlENY6s99NOBeUO-e486DAX-0XtbAa3tmQdMYjF2GLxluGvHrhFHhvr5YCuDXfYxTgw5cYo"
 ADMIN_ID = 200005093141
 GROUP_ID = 242296265 
-GROUP_LINK = "https://vk.com/club242296265"
 
 vk_session = vk_api.VkApi(token=TOKEN)
 longpoll = VkBotLongPoll(vk_session, GROUP_ID)
@@ -55,7 +54,7 @@ def add_upload(user_id):
 
 init_db()
 
-# --- СОКРАЩЕНИЕ ССЫЛОК (БЕЗ HTTPS) ---
+# --- СОКРАЩЕНИЕ ССЫЛОК ---
 def shorten_link(url):
     try:
         res = vk.utils.getShortLink(url=url)
@@ -201,17 +200,30 @@ try:
             text = msg.get('text', '').strip()
             text_lower = text.lower()
 
-            # Проверка: это беседа или личные сообщения? 
-            # Если peer_id == user_id, значит это ЛС. Если нет - это беседа.
+            # Проверяем: ЛС это или беседа
             is_ls = (peer_id == user_id)
 
-            # 1. Приветствие (только в ЛС)
+            # === 1. КОМАНДА ПИНГ (РАБОТАЕТ ВЕЗДЕ И БЕЗ КНОПОК) ===
+            if text_lower in ["пинг", "ping", "пинк"]:
+                ping_ms = int((time.time() - msg.get('date', time.time())) * 1000)
+                if ping_ms < 0: ping_ms = 0
+                send_msg(peer_id, f"🏓 **Понг!**\nВаш пинг: {ping_ms} мс", keyboard=None)
+                continue 
+
+            # === 2. ЕСЛИ ЭТО БЕСЕДА - БОТ МОЛЧИТ (кроме пинга, который выше) ===
+            if not is_ls:
+                continue 
+
+            # =========================================================
+            # ДАЛЬШЕ ИДЕТ ТОЛЬКО ДЛЯ ЛИЧНЫХ СООБЩЕНИЙ (ЛС)
+            # =========================================================
+
+            # 3. Приветствие
             if text_lower == "начать" or text_lower == "start":
-                if is_ls:
-                    send_msg(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
+                send_msg(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
                 continue
 
-            # 2. ОЖИДАНИЕ ОЦЕНКИ ОТ ИГРОКА
+            # 4. ОЖИДАНИЕ ОЦЕНКИ ОТ ИГРОКА
             if user_id in waiting_for_rating:
                 try:
                     rating = int(text)
@@ -248,7 +260,7 @@ try:
                     send_msg(peer_id, "❌ Пожалуйста, введи число от 1 до 10.", keyboard=get_main_kb())
                 continue
 
-            # 3. ИГРОК ПИШЕТ ВОПРОС
+            # 5. ИГРОК ПИШЕТ ВОПРОС
             if user_id in waiting_for_manual_report:
                 if text_lower == "⬅️ назад" or text_lower == "назад":
                     waiting_for_manual_report.remove(user_id)
@@ -264,7 +276,7 @@ try:
                     waiting_for_manual_report.remove(user_id)
                     continue
 
-            # 4. АДМИН ПИШЕТ РУЧНОЙ ОТВЕТ
+            # 6. АДМИН ПИШЕТ РУЧНОЙ ОТВЕТ
             if user_id == ADMIN_ID and ADMIN_ID in waiting_for_manual_reply:
                 target_user_id = waiting_for_manual_reply[ADMIN_ID]
                 send_msg(target_user_id, f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n{text}", keyboard=get_rating_kb())
@@ -272,7 +284,7 @@ try:
                 del waiting_for_manual_reply[ADMIN_ID]
                 continue
 
-            # 5. АДМИН ВЫБИРАЕТ СПОСОБ ОТВЕТА
+            # 7. АДМИН ВЫБИРАЕТ СПОСОБ ОТВЕТА
             if user_id == ADMIN_ID and text_lower == "✍️ ответить на репорт":
                 if reports:
                     last_msg_id = list(reports.keys())[-1]
@@ -293,7 +305,7 @@ try:
                     send_msg(ADMIN_ID, f"✍️ Напиши свой текст для [id{target_user_id}|Игрока]:", keyboard=get_main_kb())
                 continue
 
-            # 6. АДМИН ОТПРАВЛЯЕТ ШАБЛОН
+            # 8. АДМИН ОТПРАВЛЯЕТ ШАБЛОН
             if user_id == ADMIN_ID and ADMIN_ID in waiting_for_reply:
                 if text_lower in ["✅ исправлено, проверяй", "⏳ скоро починим", "📱 скачай с компа", "🔄 попробуй еще раз"]:
                     target_user_id = waiting_for_reply[ADMIN_ID]
@@ -302,7 +314,7 @@ try:
                     del waiting_for_reply[ADMIN_ID] 
                 continue
 
-            # 7. ИГРОК ВЫБИРАЕТ ШАБЛОН ЖАЛОБЫ
+            # 9. ИГРОК ВЫБИРАЕТ ШАБЛОН ЖАЛОБЫ
             if user_id in waiting_for_support:
                 if text_lower == "⬅️ назад" or text_lower == "назад":
                     waiting_for_support.remove(user_id)
@@ -318,7 +330,7 @@ try:
                 waiting_for_support.remove(user_id)
                 continue
 
-            # 8. СТАТИСТИКА АДМИНА
+            # 10. СТАТИСТИКА АДМИНА
             if text_lower == "стата" and user_id == ADMIN_ID:
                 conn = sqlite3.connect('super_bot.db')
                 c = conn.cursor()
@@ -333,17 +345,15 @@ try:
                 send_msg(peer_id, stats_text)
                 continue
 
-            # 9. ПРОВЕРКА ЧС (ПОДПИСКУ УБРАЛ)
+            # 11. ПРОВЕРКА ЧС (Подписки больше НЕТ)
             warns, ban_until, uploads = get_user_data(user_id)
             current_time = int(time.time())
 
             if ban_until > current_time:
                 send_msg(peer_id, f"⛔ **Вы заблокированы!**\nОсталось: {(ban_until - current_time)//86400} дн.")
                 continue
-            
-            # Проверка на подписку полностью удалена, как ты просил!
 
-            # 10. ОБРАБОТКА ФОТО/ВИДЕО
+            # 12. ОБРАБОТКА ФОТО/ВИДЕО
             if peer_id in waiting_mode:
                 try:
                     msg_info = vk.messages.getById(message_ids=msg['id'])
@@ -398,7 +408,7 @@ try:
                 if peer_id in waiting_mode: del waiting_mode[peer_id]
                 continue
 
-            # 11. ОСТАЛЬНЫЕ КНОПКИ МЕНЮ
+            # 13. ОСТАЛЬНЫЕ КНОПКИ МЕНЮ
             if "видео" in text_lower:
                 waiting_mode[peer_id] = 'video'
                 send_msg(peer_id, "🎬 **Отправь мне видео!**", keyboard=get_main_kb())
@@ -411,15 +421,6 @@ try:
             elif "статистика" in text_lower:
                 send_msg(peer_id, f"📊 **Загружено:** {uploads}", keyboard=get_main_kb())
             
-            # ===== КОМАНДА ПИНГ (РАБОТАЕТ ВЕЗДЕ) =====
-            elif text_lower in ["пинг", "ping", "пинк"]:
-                ping_ms = int((time.time() - msg.get('date', time.time())) * 1000)
-                if ping_ms < 0: ping_ms = 0
-                # В беседе клавиатуру не кидаем, только текст
-                kb = get_main_kb() if is_ls else None
-                send_msg(peer_id, f"🏓 **Понг!**\nВаш пинг: {ping_ms} мс", keyboard=kb)
-            # ===========================================
-
             elif "помощь" in text_lower:
                 help_text = "📖 Как пользоваться ботом:\n1. Жми 'Загрузить фото'.\n2. Отправь картинку.\n3. Получи ссылку."
                 send_msg(peer_id, help_text, keyboard=get_help_kb())
@@ -439,12 +440,10 @@ try:
                 waiting_for_manual_report.add(user_id)
                 
             elif "назад" in text_lower:
-                if is_ls: # Отвечаем только в ЛС
-                    send_msg(peer_id, "Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
+                send_msg(peer_id, "Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
                 
             else:
-                if is_ls: # Отвечаем "Выбери действие" ТОЛЬКО в ЛС, чтобы не спамить в беседе
-                    send_msg(peer_id, "Выбери действие на кнопках 👇", keyboard=get_main_kb())
+                send_msg(peer_id, "Выбери действие на кнопках 👇", keyboard=get_main_kb())
 
 except Exception as e:
     print("\n❌ КРИТИЧЕСКАЯ ОШИБКА:", e)
