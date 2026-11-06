@@ -1,6 +1,6 @@
 import vk_api
 from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
-import json, random, sqlite3, time, requests
+import json, random, sqlite3, time, requests, re
 
 # ===== ТОКЕН =====
 TOKEN = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMbjdYBmf-QH6dwf-ZL4dMYkKMEEiviqU5GPmM5kaG4Xt535Hb1ApvImzJkk_cq-Q7ZxOQYVPbnULj0Fg6U0yDNSPgLwANkGKX348kTlENY6s99NOBeUO-e486DAX-0XtbAa3tmQdMYjF2GLxluGvHrhFHhvr5YCuDXfYxTgw5cYo"
@@ -51,7 +51,6 @@ def add_upload(user_id):
     conn.commit()
     conn.close()
 
-# Теперь варн просто добавляется, без автобана
 def add_warn(user_id):
     conn = sqlite3.connect('super_bot.db')
     c = conn.cursor()
@@ -154,7 +153,6 @@ def get_admin_report_kb(report_id, target_user_id):
         ]
     }, ensure_ascii=False)
 
-# Кнопки выбора времени бана
 def get_ban_time_kb(target_user, report_id):
     return json.dumps({
         "inline": True,
@@ -206,9 +204,7 @@ try:
                         
                     new_warns = add_warn(target_user)
                     
-                    # Если 3 или больше варнов - предлагаем выбрать бан
                     if new_warns >= 3:
-                        # Отменяем ожидание ответа, если оно было
                         if ADMIN_ID in waiting_for_manual_reply:
                             if waiting_for_manual_reply[ADMIN_ID]["report_id"] == report_id:
                                 del waiting_for_manual_reply[ADMIN_ID]
@@ -216,7 +212,6 @@ try:
                         ban_menu_text = f"⚠️ Пользователь [id{target_user}|Игрок] достиг лимита (3/3)!\n\nВыберите срок ЧС (бана):"
                         send_msg(ADMIN_ID, ban_menu_text, keyboard=get_ban_time_kb(target_user, report_id))
                         
-                        # Удаляем из активных и убираем репорт, чтобы не мешал
                         del active_reports[report_id]
                         users_in_report.discard(target_user)
                         try:
@@ -226,7 +221,6 @@ try:
                         vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Выберите срок бана"}))
                         continue
                     
-                    # Если меньше 3 - просто предупреждение
                     else:
                         admin_msg = f"⚠️ Пользователь [id{target_user}|Игрок] получил предупреждение ({new_warns}/3). Репорт #{report_id} удален."
                         send_msg(ADMIN_ID, admin_msg)
@@ -248,11 +242,8 @@ try:
                         vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Спам обработан"}))
                         continue
 
-                # --- ОБРАБОТКА ВЫБОРА ВРЕМЕНИ БАНА ---
                 elif payload.get("cmd") == "set_ban":
                     ban_seconds = payload.get("time")
-                    
-                    # Записываем бан в БД и обнуляем варны
                     conn = sqlite3.connect('super_bot.db')
                     c = conn.cursor()
                     ban_until = int(time.time()) + int(ban_seconds)
@@ -260,20 +251,15 @@ try:
                     conn.commit()
                     conn.close()
 
-                    # Текст для игрока
                     ban_text = (f"⛔ **ВЫ БЫЛИ АВТОМАТИЧЕСКИ ЗАБЛОКИРОВАНЫ!**\n\n"
                                 f"Причина: Систематический спам (3/3).\n"
                                 f"Кто выдал: [id{ADMIN_ID}|Администратор].\n\n"
                                 f"Если вы пожалели о ситуации, обратитесь в ЛС: [id{ADMIN_ID}|Владелец]")
                     send_msg(target_user, ban_text)
-
-                    # Уведомляем тебя
                     send_msg(ADMIN_ID, f"⛔ Пользователь [id{target_user}|Игрок] отправлен в ЧС. Репорт закрыт.", keyboard=get_main_kb())
-                    
                     vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Бан выдан"}))
                     continue
 
-                # --- ОТМЕНА БАНА ---
                 elif payload.get("cmd") == "cancel_ban":
                     send_msg(ADMIN_ID, f"✅ Вы отменили бан для [id{target_user}|Игрока].", keyboard=get_main_kb())
                     vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Бан отменен"}))
@@ -322,7 +308,6 @@ try:
                 waiting_for_manual_report.discard(user_id)
                 waiting_for_rating.discard(user_id)
                 
-                # Считаем остаток
                 seconds_left = ban_until - current_time
                 if seconds_left < 60:
                     time_left = f"{seconds_left} сек."
@@ -359,6 +344,40 @@ try:
             if text_lower == "начать" or text_lower == "start":
                 send_msg(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
                 continue
+
+            # =========================================================
+            # 👑 КОМАНДЫ АДМИНИСТРАТОРА (Снятие ЧС и т.д.)
+            # =========================================================
+            if user_id == ADMIN_ID:
+                # СНЯТИЕ ЧС
+                if text_lower.startswith("снять чс") or text_lower.startswith("разбан"):
+                    target_user = None
+                    # 1. Проверяем, есть ли ответ на сообщение (Reply)
+                    if 'reply_message' in msg:
+                        target_user = msg['reply_message']['from_id']
+                    else:
+                        # 2. Ищем ID в тексте (например, id123456 или просто цифры)
+                        match = re.search(r'id(\d+)', text_lower)
+                        if match:
+                            target_user = int(match.group(1))
+                        else:
+                            match = re.search(r'\d{5,}', text)
+                            if match:
+                                target_user = int(match.group(0))
+                    
+                    if target_user:
+                        conn = sqlite3.connect('super_bot.db')
+                        c = conn.cursor()
+                        c.execute("UPDATE users SET warns = 0, ban_until = 0 WHERE user_id = ?", (target_user,))
+                        conn.commit()
+                        conn.close()
+                        
+                        send_msg(ADMIN_ID, f"✅ С пользователя [id{target_user}|Игрок] успешно снят ЧС и обнулены варны!", keyboard=get_main_kb())
+                        send_msg(target_user, "✅ **Администратор снял с вас ЧС и обнулил предупреждения!**\n\nБот снова готов с вами работать.")
+                    else:
+                        send_msg(ADMIN_ID, "❌ Ошибка: Не удалось найти ID. Ответьте на сообщение игрока или напишите 'снять чс id123456'.", keyboard=get_main_kb())
+                    continue
+            # =========================================================
 
             # --- ОТВЕТ АДМИНА НА РЕПОРТ ---
             if user_id == ADMIN_ID and ADMIN_ID in waiting_for_manual_reply:
