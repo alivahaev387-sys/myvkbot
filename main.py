@@ -55,13 +55,6 @@ def add_upload(user_id):
 
 init_db()
 
-def is_subscribed(user_id):
-    try:
-        res = vk.groups.isMember(group_id=GROUP_ID, user_id=user_id)
-        return bool(res)
-    except:
-        return False
-
 # --- СОКРАЩЕНИЕ ССЫЛОК (БЕЗ HTTPS) ---
 def shorten_link(url):
     try:
@@ -71,7 +64,7 @@ def shorten_link(url):
     except: pass
     return url.replace('https://', '').replace('http://', '')
 
-# --- ФУНКЦИЯ ОТПРАВКИ (ДОБАВЛЕНА, ЧТОБЫ БОТ НЕ ПАДАЛ) ---
+# --- ФУНКЦИЯ ОТПРАВКИ ---
 def send_msg(peer_id, message, keyboard=None):
     try:
         random_id = random.randint(1, 2**31 - 1)
@@ -208,9 +201,14 @@ try:
             text = msg.get('text', '').strip()
             text_lower = text.lower()
 
-            # 1. Приветствие
+            # Проверка: это беседа или личные сообщения? 
+            # Если peer_id == user_id, значит это ЛС. Если нет - это беседа.
+            is_ls = (peer_id == user_id)
+
+            # 1. Приветствие (только в ЛС)
             if text_lower == "начать" or text_lower == "start":
-                send_msg(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
+                if is_ls:
+                    send_msg(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
                 continue
 
             # 2. ОЖИДАНИЕ ОЦЕНКИ ОТ ИГРОКА
@@ -218,14 +216,12 @@ try:
                 try:
                     rating = int(text)
                     if 1 <= rating <= 10:
-                        # Отправляем красивый отзыв Админу
                         admin_msg = (f"⭐ **Новый отзыв!**\n\n"
                                      f"👤 Пользователь: [id{user_id}|Игрок]\n"
                                      f"🌟 Оценка: {rating}/10\n\n"
                                      f"Репорт успешно закрыт.")
                         send_msg(ADMIN_ID, admin_msg)
                         
-                        # Формируем УМНЫЙ ОТВЕТ для игрока в зависимости от оценки
                         if 1 <= rating <= 3:
                             user_msg = (f"😔 **Спасибо за отзыв (Оценка: {rating}/10).**\n\n"
                                         f"Нам очень жаль, что мы не смогли решить вашу проблему идеально. "
@@ -237,15 +233,13 @@ try:
                                         f"Мы рады, что смогли вам помочь! Если у вас остались "
                                         f"какие-то вопросы, всегда обращайтесь, мы на связи.\n\n"
                                         f"🔒 *Текущий репорт закрыт.*")
-                        else: # 8-10
+                        else: 
                             user_msg = (f"🤩 **Огромное спасибо! (Оценка: {rating}/10)**\n\n"
                                         f"Мы очень рады, что вам всё понравилось и проблема решена! "
                                         f"Ваша высокая оценка делает нашу работу еще лучше.\n\n"
                                         f"🔒 *Текущий репорт закрыт.*")
                         
                         send_msg(peer_id, user_msg, keyboard=get_main_kb())
-                        
-                        # Очищаем состояния
                         waiting_for_rating.remove(user_id)
                         users_in_report.discard(user_id)
                     else:
@@ -339,17 +333,15 @@ try:
                 send_msg(peer_id, stats_text)
                 continue
 
-            # 9. ПРОВЕРКА ЧС И ПОДПИСКИ
+            # 9. ПРОВЕРКА ЧС (ПОДПИСКУ УБРАЛ)
             warns, ban_until, uploads = get_user_data(user_id)
             current_time = int(time.time())
 
             if ban_until > current_time:
                 send_msg(peer_id, f"⛔ **Вы заблокированы!**\nОсталось: {(ban_until - current_time)//86400} дн.")
                 continue
-
-            if not is_subscribed(user_id):
-                send_msg(peer_id, f"🔒 **Доступ ограничен!**\nПодпишись: {GROUP_LINK}")
-                continue
+            
+            # Проверка на подписку полностью удалена, как ты просил!
 
             # 10. ОБРАБОТКА ФОТО/ВИДЕО
             if peer_id in waiting_mode:
@@ -419,12 +411,14 @@ try:
             elif "статистика" in text_lower:
                 send_msg(peer_id, f"📊 **Загружено:** {uploads}", keyboard=get_main_kb())
             
-            # ===== ДОБАВЛЕНА КОМАНДА ПИНГ (АККУРАТНО, В САМОМ НИЗУ) =====
+            # ===== КОМАНДА ПИНГ (РАБОТАЕТ ВЕЗДЕ) =====
             elif text_lower in ["пинг", "ping", "пинк"]:
                 ping_ms = int((time.time() - msg.get('date', time.time())) * 1000)
                 if ping_ms < 0: ping_ms = 0
-                send_msg(peer_id, f"🏓 **Понг!**\nВаш пинг: {ping_ms} мс", keyboard=get_main_kb())
-            # ============================================================
+                # В беседе клавиатуру не кидаем, только текст
+                kb = get_main_kb() if is_ls else None
+                send_msg(peer_id, f"🏓 **Понг!**\nВаш пинг: {ping_ms} мс", keyboard=kb)
+            # ===========================================
 
             elif "помощь" in text_lower:
                 help_text = "📖 Как пользоваться ботом:\n1. Жми 'Загрузить фото'.\n2. Отправь картинку.\n3. Получи ссылку."
@@ -445,10 +439,12 @@ try:
                 waiting_for_manual_report.add(user_id)
                 
             elif "назад" in text_lower:
-                send_msg(peer_id, "Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
+                if is_ls: # Отвечаем только в ЛС
+                    send_msg(peer_id, "Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
                 
             else:
-                send_msg(peer_id, "Выбери действие на кнопках 👇", keyboard=get_main_kb())
+                if is_ls: # Отвечаем "Выбери действие" ТОЛЬКО в ЛС, чтобы не спамить в беседе
+                    send_msg(peer_id, "Выбери действие на кнопках 👇", keyboard=get_main_kb())
 
 except Exception as e:
     print("\n❌ КРИТИЧЕСКАЯ ОШИБКА:", e)
