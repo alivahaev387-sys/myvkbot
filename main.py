@@ -186,7 +186,7 @@ def auto_unban_checker():
         except Exception as e:
             print(f"Ошибка в авто-разбане: {e}")
         
-        time.sleep(10)
+        time.sleep(5) # Проверка каждые 5 секунд
 
 threading.Thread(target=auto_unban_checker, daemon=True).start()
 # ==================================================
@@ -251,7 +251,7 @@ try:
                         admin_msg = f"⚠️ Пользователь [id{target_user}|Игрок] получил предупреждение ({new_warns}/3). Репорт #{report_id} удален."
                         send_msg(ADMIN_ID, admin_msg)
                         
-                        # ЗАМЕНЕНО ЗДЕСЬ
+                        # ТЕКСТ ПРЕДУПРЕЖДЕНИЯ (Фраза внизу)
                         spam_text = (f"🚫 **ВАШ РЕПОРТ ОТКЛОНЕН!**\n\n"
                                      f"Причина: СПАМ.\n"
                                      f"Ваш счет: {new_warns}/3.\n"
@@ -278,7 +278,7 @@ try:
                     conn.commit()
                     conn.close()
 
-                    # ЗАМЕНЕНО ЗДЕСЬ
+                    # ТЕКСТ ПРИ БАНЕ (Фраза внизу)
                     ban_text = (f"⛔ **ВЫ БЫЛИ АВТОМАТИЧЕСКИ ЗАБЛОКИРОВАНЫ!**\n\n"
                                 f"Причина: Систематический спам (3/3).\n"
                                 f"Кто выдал: [id{ADMIN_ID}|Администратор].\n\n"
@@ -356,11 +356,31 @@ try:
             # =========================================================
 
             # =========================================================
-            # 🛑 ПРОВЕРКА НА ЧС
+            # 🛑 ПРОВЕРКА НА ЧС (С ЗАЩИТОЙ ОТ ПРОСРОЧКИ)
             # =========================================================
             warns, ban_until, uploads = get_user_data(user_id)
             current_time = int(time.time())
 
+            # Если бан истек, но в базе висит
+            if ban_until > 0 and ban_until <= current_time:
+                conn = sqlite3.connect('super_bot.db')
+                c = conn.cursor()
+                c.execute("UPDATE users SET ban_until = 0 WHERE user_id = ?", (user_id,))
+                conn.commit()
+                conn.close()
+                ban_until = 0
+                
+                unban_text = (
+                    f"🎉 **ПРИВЕТСТВУЕМ СНОВА!** 🎉\n\n"
+                    f"С вас был автоматически снят ЧС (Черный список).\n"
+                    f"⏳ Время наказания истекло.\n\n"
+                    f"⚠️ **Пожалуйста, больше не нарушайте правила и не спамьте.** "
+                    f"Следующий бан может быть выдан навсегда!\n\n"
+                    f"Бот снова готов с вами работать. Выбирай действие на кнопках 👇"
+                )
+                send_msg(user_id, unban_text, keyboard=get_main_kb())
+
+            # Если бан еще активен
             if ban_until > current_time:
                 if peer_id in waiting_mode: del waiting_mode[peer_id]
                 waiting_for_support.discard(user_id)
@@ -377,7 +397,7 @@ try:
                 else:
                     time_left = f"{seconds_left // 86400} дн."
 
-                # ЗАМЕНЕНО ЗДЕСЬ
+                # ТЕКСТ ВО ВРЕМЯ ЧС (Фраза внизу)
                 ban_text = (f"⛔ **ВЫ НАХОДИТЕСЬ В ЧС (ЧЕРНОМ СПИСКЕ)!**\n\n"
                             f"Причина: Спам / Нарушение правил.\n"
                             f"Кто выдал: [id{ADMIN_ID}|Администратор].\n"
