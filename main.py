@@ -66,6 +66,18 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
+# --- ФУНКЦИЯ СОКРАЩЕНИЯ ССЫЛКИ (БЕЗ HTTPS) ---
+def shorten_link(url):
+    try:
+        # Сокращаем ссылку через официальный метод ВК
+        res = vk.utils.getShortLink(url=url)
+        if 'short_url' in res:
+            # Убираем https:// и http:// из готовой ссылки
+            clean_url = res['short_url'].replace('https://', '').replace('http://', '')
+            return clean_url
+    except: pass
+    return url
+
 # --- КЛАВИАТУРЫ ---
 def get_main_kb():
     return json.dumps({
@@ -141,7 +153,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН!")
+print("БОТ ЗАПУЩЕН (Ссылки без https)!")
 
 try:
     longpoll = VkLongPoll(vk_session)
@@ -156,6 +168,7 @@ try:
                 send(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
                 continue
 
+            # ИСПРАВЛЕНИЕ БАГА С "НАЗАД" В РЕПОРТАХ
             if user_id in waiting_for_manual_report:
                 if text_lower == "⬅️ назад" or text_lower == "назад":
                     waiting_for_manual_report.remove(user_id)
@@ -248,6 +261,7 @@ try:
                 send(peer_id, f"🔒 **Доступ ограничен!**\nПодпишись: {GROUP_LINK}")
                 continue
 
+            # ОБРАБОТКА ФОТО/ВИДЕО
             if peer_id in waiting_mode:
                 try:
                     msg_info = vk.messages.getById(message_ids=event.message_id)
@@ -275,12 +289,14 @@ try:
                                 send(peer_id, "❌ **Это не видео!**", keyboard=get_main_kb())
                             elif is_video and links:
                                 add_upload(user_id)
-                                send(peer_id, f"🎬 **Ссылка:**\n{links[0]}", keyboard=get_main_kb())
+                                short_link = shorten_link(links[0])
+                                send(peer_id, f"🎬 **Ссылка:**\n{short_link}", keyboard=get_main_kb())
                         elif mode == 'one':
                             if is_photo and links:
                                 add_upload(user_id)
+                                short_link = shorten_link(links[0])
                                 final_text = (f"🌿 **Твоя фотография загружена!**\n\n"
-                                              f"🔗 Ссылка: {links[0]}\n\n"
+                                              f"🔗 Ссылка: {short_link}\n\n"
                                               f"💾 **Как сохранить:**\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить».")
                                 send(peer_id, final_text, keyboard=get_main_kb())
                             else:
@@ -290,7 +306,8 @@ try:
                                 add_upload(user_id)
                                 final_text = "🌿 **Твои фотографии загружены!**\n\n"
                                 for i, link in enumerate(links, 1):
-                                    final_text += f"🔗 Фото {i}: {link}\n\n"
+                                    short_link = shorten_link(link)
+                                    final_text += f"🔗 Фото {i}: {short_link}\n\n"
                                 final_text += "💾 *Скопируй ссылки и открой в браузере.*"
                                 send(peer_id, final_text, keyboard=get_main_kb())
                             else:
@@ -299,6 +316,7 @@ try:
                 if peer_id in waiting_mode: del waiting_mode[peer_id]
                 continue
 
+            # КНОПКИ МЕНЮ
             if "видео" in text_lower:
                 waiting_mode[peer_id] = 'video'
                 send(peer_id, "🎬 **Отправь мне видео!**", keyboard=get_main_kb())
