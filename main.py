@@ -2,6 +2,9 @@ import vk_api
 from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
 import json, random, sqlite3, time, requests
 
+# Запоминаем время запуска бота для команды /ping
+START_TIME = time.time()
+
 # ===== ТОКЕН =====
 TOKEN = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMbjdYBmf-QH6dwf-ZL4dMYkKMEEiviqU5GPmM5kaG4Xt535Hb1ApvImzJkk_cq-Q7ZxOQYVPbnULj0Fg6U0yDNSPgLwANkGKX348kTlENY6s99NOBeUO-e486DAX-0XtbAa3tmQdMYjF2GLxluGvHrhFHhvr5YCuDXfYxTgw5cYo"
 ADMIN_ID = 200005093141
@@ -154,7 +157,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-# Кнопки для оценки (Теперь передаем ID пользователя в payload)
+# Кнопки для оценки (Вшиваем ID пользователя для защиты)
 def get_rating_kb(target_user_id):
     return json.dumps({
         "inline": True,
@@ -175,10 +178,13 @@ try:
             peer_id = event.object.peer_id
             event_id = event.object.event_id
             
-            # ПРОВЕРКА: ТОТ ЛИ ЧЕЛОВЕК НАЖАЛ КНОПКУ?
+            # ЗАЩИТА КНОПОК
             target_id = payload.get("target_id")
-            if target_id and user_id != target_id:
-                vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Эта кнопка не для вас!"}))
+            if target_id and str(user_id) != str(target_id):
+                vk.messages.sendMessageEventAnswer(
+                    event_id=event_id, user_id=user_id, peer_id=peer_id, 
+                    event_data=json.dumps({"type": "show_snackbar", "text": "❌ Эта кнопка не для вас!"})
+                )
                 continue
 
             if payload.get("cmd") == "rate_report":
@@ -203,20 +209,48 @@ try:
             msg = event.object.message
             peer_id = msg['peer_id']
             user_id = msg['from_id'] 
+            
+            # Очищаем текст от упоминания группы
             text = msg.get('text', '').strip()
-            text_lower = text.lower()
+            text_lower = text.lower().replace("@club242296265", "").strip()
 
             # Проверяем: ЛС это или беседа
             is_ls = (peer_id == user_id)
 
-            # === 1. КОМАНДА ПИНГ (РАБОТАЕТ ВЕЗДЕ И БЕЗ КНОПОК) ===
-            if text_lower in ["пинг", "ping", "пинк"]:
-                ping_ms = int((time.time() - msg.get('date', time.time())) * 1000)
-                if ping_ms < 0: ping_ms = 0
-                send_msg(peer_id, f"🏓 **Понг!**\nВаш пинг: {ping_ms} мс", keyboard=None)
-                continue 
+            # =========================================================
+            # 🚀 МАКСИМАЛЬНО БЫСТРАЯ КОМАНДА /PING (СТОИТ САМОЙ ПЕРВОЙ)
+            # =========================================================
+            if text_lower in ["пинг", "ping", "/ping", "/пинг", "!ping", "!пинг"]:
+                now = time.time()
+                # Задержка события (сколько секунд шло от ВК до нас)
+                event_latency = now - msg.get('date', now) 
+                if event_latency < 0: event_latency = 0
+                
+                # Время работы бота
+                uptime_seconds = int(now - START_TIME)
+                days = uptime_seconds // 86400
+                hours = (uptime_seconds % 86400) // 3600
+                minutes = (uptime_seconds % 3600) // 60
+                uptime_str = f"{days} д. {hours} ч. {minutes} м."
 
-            # === 2. ЕСЛИ ЭТО БЕСЕДА - БОТ МОЛЧИТ (кроме пинга, который выше) ===
+                # Измеряем скорость ответа API ВК
+                t0 = time.time()
+                send_msg(peer_id, "🏓 Понг...", keyboard=None) # Отправляем быстрое сообщение
+                api_latency = (time.time() - t0) * 1000
+
+                # Формируем красивый ответ (как у ботов со скрина)
+                ping_text = (
+                    f"🏓 **Понг!**\n"
+                    f"Задержка события: {int(event_latency * 1000)} мс\n"
+                    f"Скорость ответа API: {int(api_latency)} мс\n"
+                    f"Время работы бота: {uptime_str}"
+                )
+                # Отправляем финальный текст (без кнопок)
+                send_msg(peer_id, ping_text, keyboard=None)
+                continue # Выходим, чтобы не тратить время на остальной код
+            # =========================================================
+
+            # === ЕСЛИ ЭТО БЕСЕДА - БОТ МОЛЧИТ (кроме пинга) ===
             if not is_ls:
                 continue 
 
@@ -285,7 +319,6 @@ try:
             # 6. АДМИН ПИШЕТ РУЧНОЙ ОТВЕТ
             if user_id == ADMIN_ID and ADMIN_ID in waiting_for_manual_reply:
                 target_user_id = waiting_for_manual_reply[ADMIN_ID]
-                # Передаем ID игрока в кнопки
                 send_msg(target_user_id, f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n{text}", keyboard=get_rating_kb(target_user_id))
                 send_msg(ADMIN_ID, f"✅ Ответ доставлен [id{target_user_id}|Игроку]. Ожидайте от него оценку.", keyboard=get_main_kb())
                 del waiting_for_manual_reply[ADMIN_ID]
@@ -316,7 +349,6 @@ try:
             if user_id == ADMIN_ID and ADMIN_ID in waiting_for_reply:
                 if text_lower in ["✅ исправлено, проверяй", "⏳ скоро починим", "📱 скачай с компа", "🔄 попробуй еще раз"]:
                     target_user_id = waiting_for_reply[ADMIN_ID]
-                    # Передаем ID игрока в кнопки
                     send_msg(target_user_id, f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n{text}", keyboard=get_rating_kb(target_user_id))
                     send_msg(ADMIN_ID, f"✅ Ответ доставлен [id{target_user_id}|Игроку].", keyboard=get_main_kb())
                     del waiting_for_reply[ADMIN_ID] 
@@ -353,7 +385,7 @@ try:
                 send_msg(peer_id, stats_text)
                 continue
 
-            # 11. ПРОВЕРКА ЧС (Подписки больше НЕТ)
+            # 11. ПРОВЕРКА ЧС (Никаких подписок)
             warns, ban_until, uploads = get_user_data(user_id)
             current_time = int(time.time())
 
