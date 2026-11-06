@@ -18,7 +18,7 @@ waiting_for_manual_report = set()
 waiting_for_manual_reply = {} 
 users_in_report = set() 
 waiting_for_rating = set() 
-active_reports = {} # Храним активные репорты: {report_id: user_id}
+active_reports = {}
 
 # --- БАЗА ДАННЫХ ---
 def init_db():
@@ -63,7 +63,7 @@ def add_warn_and_check_ban(user_id):
     is_banned = False
     
     if new_warns >= 3:
-        ban_time = int(time.time()) + 315360000
+        ban_time = int(time.time()) + 315360000 # Бан на 10 лет
         c.execute("UPDATE users SET warns = 0, ban_until = ? WHERE user_id = ?", (ban_time, user_id)) 
         is_banned = True
     else:
@@ -184,7 +184,6 @@ try:
                 report_id = payload.get("report_id")
                 
                 if payload.get("cmd") == "admin_reply":
-                    # ПРОВЕРКА: Если репорта нет в активных, значит он уже спам/отвечен
                     if report_id not in active_reports:
                         vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "❌ Этот репорт уже закрыт или помечен как спам!"}))
                         continue
@@ -196,18 +195,15 @@ try:
                     continue
                 
                 elif payload.get("cmd") == "admin_spam":
-                    # ПРОВЕРКА: Если репорта нет в активных, игнорируем
                     if report_id not in active_reports:
                         vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Этот репорт уже обработан!"}))
                         continue
                         
                     target_user = payload.get("target_id")
                     
-                    # Удаляем из активных
                     del active_reports[report_id]
                     users_in_report.discard(target_user)
                     
-                    # Если ты в этот момент печатал ответ на этот репорт, отменяем
                     if ADMIN_ID in waiting_for_manual_reply:
                         if waiting_for_manual_reply[ADMIN_ID]["report_id"] == report_id:
                             del waiting_for_manual_reply[ADMIN_ID]
@@ -217,8 +213,14 @@ try:
                     
                     if is_banned:
                         admin_msg = f"⛔ Пользователь [id{target_user}|Игрок] отправлен в ЧС за 3 спама. Репорт #{report_id} удален."
+                        # Очищаем состояния игрока, чтобы он не мог ничего делать
+                        waiting_for_support.discard(target_user)
+                        waiting_for_manual_report.discard(target_user)
+                        waiting_for_rating.discard(target_user)
+                        if target_user in waiting_mode: del waiting_mode[target_user]
                     else:
                         admin_msg = f"⚠️ Пользователь [id{target_user}|Игрок] получил предупреждение ({new_warns}/3). Репорт #{report_id} удален."
+                    
                     send_msg(ADMIN_ID, admin_msg)
                     
                     if is_banned:
@@ -271,6 +273,32 @@ try:
             text_lower = text.lower().replace("@club242296265", "").strip()
 
             is_ls = (peer_id == user_id)
+            if not is_ls:
+                continue 
+
+            # =========================================================
+            # 🛑 САМАЯ ПЕРВАЯ ПРОВЕРКА: НАХОДИТСЯ ЛИ ОН В ЧС?
+            # =========================================================
+            warns, ban_until, uploads = get_user_data(user_id)
+            current_time = int(time.time())
+
+            if ban_until > current_time:
+                # Если он в ЧС, стираем все его состояния
+                if peer_id in waiting_mode: del waiting_mode[peer_id]
+                waiting_for_support.discard(user_id)
+                waiting_for_manual_report.discard(user_id)
+                waiting_for_rating.discard(user_id)
+                
+                days_left = (ban_until - current_time) // 86400
+                ban_text = (f"⛔ **ВЫ НАХОДИТЕСЬ В ЧС (ЧЕРНОМ СПИСКЕ)!**\n\n"
+                            f"Причина: Спам / Нарушение правил бота.\n"
+                            f"Кто выдал: [id{ADMIN_ID}|Администратор].\n"
+                            f"Осталось: {days_left} дн.\n\n"
+                            f"Бот полностью игнорирует ваши команды.\n"
+                            f"Если вы пожалели о ситуации, напишите напрямую в ЛС: [id{ADMIN_ID}|Владелец]")
+                send_msg(peer_id, ban_text)
+                continue # ЖЕСТКО ПРЕРЫВАЕМ выполнение, чтобы он не загрузил фото
+            # =========================================================
 
             # КОМАНДА ПИНГ
             if text_lower in ["пинг", "ping", "/ping", "/пинг", "!ping", "!пинг"]:
@@ -285,10 +313,7 @@ try:
                 send_msg(peer_id, ping_text, keyboard=None)
                 continue 
 
-            if not is_ls:
-                continue 
-
-            # ДАЛЬШЕ ТОЛЬКО ЛС
+            # ДАЛЬШЕ ТОЛЬКО ДЛЯ ТЕХ, КТО НЕ В ЧС
             if text_lower == "начать" or text_lower == "start":
                 send_msg(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
                 continue
@@ -299,7 +324,6 @@ try:
                 target_user_id = reply_data["target_user"]
                 report_id = reply_data["report_id"]
                 
-                # Если репорт уже удален (спам), не отправляем
                 if report_id not in active_reports:
                     send_msg(ADMIN_ID, f"❌ Ошибка: Репорт #{report_id} уже был закрыт или помечен как спам. Ответ не отправлен.", keyboard=get_main_kb())
                     del waiting_for_manual_reply[ADMIN_ID]
@@ -308,7 +332,6 @@ try:
                 send_msg(target_user_id, f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n{text}", keyboard=get_rating_kb(target_user_id))
                 send_msg(ADMIN_ID, f"✅ Ответ доставлен [id{target_user_id}|Игроку]. Репорт #{report_id} закрыт.", keyboard=get_main_kb())
                 
-                # Удаляем из активных и очищаем состояния
                 del active_reports[report_id]
                 users_in_report.discard(target_user_id)
                 del waiting_for_manual_reply[ADMIN_ID]
@@ -353,7 +376,7 @@ try:
                     continue
                 else:
                     report_id = random.randint(1000, 9999)
-                    active_reports[report_id] = user_id # Сохраняем в активные
+                    active_reports[report_id] = user_id 
                     
                     support_text = f"🆘 **Репорт #{report_id}**\n👤 От: [id{user_id}|Игрок]\n\n{text}"
                     send_msg(ADMIN_ID, support_text, keyboard=get_admin_report_kb(report_id, user_id))
@@ -371,7 +394,7 @@ try:
                     continue
                 
                 report_id = random.randint(1000, 9999)
-                active_reports[report_id] = user_id # Сохраняем в активные
+                active_reports[report_id] = user_id
                 
                 support_text = f"🆘 **Репорт #{report_id}**\n👤 От: [id{user_id}|Игрок]\n\n{text}"
                 send_msg(ADMIN_ID, support_text, keyboard=get_admin_report_kb(report_id, user_id))
@@ -394,14 +417,6 @@ try:
                         ban_status = "Нет" if b_until == 0 or b_until < time.time() else "ДА (ЧС)"
                         stats_text += f"👤 ID: {u_id}\n⚠️ Варны: {w}/3\n📤 Загрузок: {ups}\n⛔ ЧС: {ban_status}\n\n"
                 send_msg(peer_id, stats_text)
-                continue
-
-            # Проверка ЧС
-            warns, ban_until, uploads = get_user_data(user_id)
-            current_time = int(time.time())
-
-            if ban_until > current_time:
-                send_msg(peer_id, f"⛔ **Вы заблокированы!**\nОсталось: {(ban_until - current_time)//86400} дн.")
                 continue
 
             # Обработка фото/видео
