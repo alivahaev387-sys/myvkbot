@@ -71,6 +71,24 @@ def shorten_link(url):
     except: pass
     return url.replace('https://', '').replace('http://', '')
 
+# --- ФУНКЦИЯ ОТПРАВКИ СООБЩЕНИЙ (ДОБАВЛЕНО) ---
+def send_msg(peer_id, message, keyboard=None):
+    try:
+        # random_id нужен, чтобы ВК не отправлял одинаковые сообщения несколько раз
+        random_id = random.randint(1, 2**31 - 1)
+        params = {
+            'peer_id': peer_id,
+            'message': message,
+            'random_id': random_id
+        }
+        if keyboard:
+            params['keyboard'] = keyboard
+        # Возвращаем ID сообщения (он нужен для сохранения в reports)
+        return vk.messages.send(**params)
+    except Exception as e:
+        print(f"Ошибка при отправке сообщения: {e}")
+        return None
+
 # --- КЛАВИАТУРЫ ---
 def get_main_kb():
     return json.dumps({
