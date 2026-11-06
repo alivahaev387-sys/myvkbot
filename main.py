@@ -218,36 +218,27 @@ try:
             is_ls = (peer_id == user_id)
 
             # =========================================================
-            # 🚀 МАКСИМАЛЬНО БЫСТРАЯ КОМАНДА /PING (СТОИТ САМОЙ ПЕРВОЙ)
+            # 🚀 БЫСТРАЯ КОМАНДА /PING (ОДНО СООБЩЕНИЕ, БЕЗ ЗАДЕРЖЕК)
             # =========================================================
             if text_lower in ["пинг", "ping", "/ping", "/пинг", "!ping", "!пинг"]:
                 now = time.time()
-                # Задержка события (сколько секунд шло от ВК до нас)
                 event_latency = now - msg.get('date', now) 
                 if event_latency < 0: event_latency = 0
                 
-                # Время работы бота
                 uptime_seconds = int(now - START_TIME)
                 days = uptime_seconds // 86400
                 hours = (uptime_seconds % 86400) // 3600
                 minutes = (uptime_seconds % 3600) // 60
                 uptime_str = f"{days} д. {hours} ч. {minutes} м."
 
-                # Измеряем скорость ответа API ВК
-                t0 = time.time()
-                send_msg(peer_id, "🏓 Понг...", keyboard=None) # Отправляем быстрое сообщение
-                api_latency = (time.time() - t0) * 1000
-
-                # Формируем красивый ответ (как у ботов со скрина)
+                # Отправляем одно единственное сообщение (без "Понг..." отдельно)
                 ping_text = (
                     f"🏓 **Понг!**\n"
                     f"Задержка события: {int(event_latency * 1000)} мс\n"
-                    f"Скорость ответа API: {int(api_latency)} мс\n"
                     f"Время работы бота: {uptime_str}"
                 )
-                # Отправляем финальный текст (без кнопок)
                 send_msg(peer_id, ping_text, keyboard=None)
-                continue # Выходим, чтобы не тратить время на остальной код
+                continue 
             # =========================================================
 
             # === ЕСЛИ ЭТО БЕСЕДА - БОТ МОЛЧИТ (кроме пинга) ===
@@ -258,12 +249,10 @@ try:
             # ДАЛЬШЕ ИДЕТ ТОЛЬКО ДЛЯ ЛИЧНЫХ СООБЩЕНИЙ (ЛС)
             # =========================================================
 
-            # 3. Приветствие
             if text_lower == "начать" or text_lower == "start":
                 send_msg(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
                 continue
 
-            # 4. ОЖИДАНИЕ ОЦЕНКИ ОТ ИГРОКА
             if user_id in waiting_for_rating:
                 try:
                     rating = int(text)
@@ -300,7 +289,6 @@ try:
                     send_msg(peer_id, "❌ Пожалуйста, введи число от 1 до 10.", keyboard=get_main_kb())
                 continue
 
-            # 5. ИГРОК ПИШЕТ ВОПРОС
             if user_id in waiting_for_manual_report:
                 if text_lower == "⬅️ назад" or text_lower == "назад":
                     waiting_for_manual_report.remove(user_id)
@@ -316,7 +304,6 @@ try:
                     waiting_for_manual_report.remove(user_id)
                     continue
 
-            # 6. АДМИН ПИШЕТ РУЧНОЙ ОТВЕТ
             if user_id == ADMIN_ID and ADMIN_ID in waiting_for_manual_reply:
                 target_user_id = waiting_for_manual_reply[ADMIN_ID]
                 send_msg(target_user_id, f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n{text}", keyboard=get_rating_kb(target_user_id))
@@ -324,7 +311,6 @@ try:
                 del waiting_for_manual_reply[ADMIN_ID]
                 continue
 
-            # 7. АДМИН ВЫБИРАЕТ СПОСОБ ОТВЕТА
             if user_id == ADMIN_ID and text_lower == "✍️ ответить на репорт":
                 if reports:
                     last_msg_id = list(reports.keys())[-1]
@@ -345,7 +331,6 @@ try:
                     send_msg(ADMIN_ID, f"✍️ Напиши свой текст для [id{target_user_id}|Игрока]:", keyboard=get_main_kb())
                 continue
 
-            # 8. АДМИН ОТПРАВЛЯЕТ ШАБЛОН
             if user_id == ADMIN_ID and ADMIN_ID in waiting_for_reply:
                 if text_lower in ["✅ исправлено, проверяй", "⏳ скоро починим", "📱 скачай с компа", "🔄 попробуй еще раз"]:
                     target_user_id = waiting_for_reply[ADMIN_ID]
@@ -354,7 +339,6 @@ try:
                     del waiting_for_reply[ADMIN_ID] 
                 continue
 
-            # 9. ИГРОК ВЫБИРАЕТ ШАБЛОН ЖАЛОБЫ
             if user_id in waiting_for_support:
                 if text_lower == "⬅️ назад" or text_lower == "назад":
                     waiting_for_support.remove(user_id)
@@ -370,7 +354,6 @@ try:
                 waiting_for_support.remove(user_id)
                 continue
 
-            # 10. СТАТИСТИКА АДМИНА
             if text_lower == "стата" and user_id == ADMIN_ID:
                 conn = sqlite3.connect('super_bot.db')
                 c = conn.cursor()
@@ -385,7 +368,6 @@ try:
                 send_msg(peer_id, stats_text)
                 continue
 
-            # 11. ПРОВЕРКА ЧС (Никаких подписок)
             warns, ban_until, uploads = get_user_data(user_id)
             current_time = int(time.time())
 
@@ -393,7 +375,6 @@ try:
                 send_msg(peer_id, f"⛔ **Вы заблокированы!**\nОсталось: {(ban_until - current_time)//86400} дн.")
                 continue
 
-            # 12. ОБРАБОТКА ФОТО/ВИДЕО
             if peer_id in waiting_mode:
                 try:
                     msg_info = vk.messages.getById(message_ids=msg['id'])
@@ -448,7 +429,6 @@ try:
                 if peer_id in waiting_mode: del waiting_mode[peer_id]
                 continue
 
-            # 13. ОСТАЛЬНЫЕ КНОПКИ МЕНЮ
             if "видео" in text_lower:
                 waiting_mode[peer_id] = 'video'
                 send_msg(peer_id, "🎬 **Отправь мне видео!**", keyboard=get_main_kb())
