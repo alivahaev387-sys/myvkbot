@@ -66,14 +66,14 @@ def send(peer_id, text, keyboard=None):
         print("Ошибка отправки:", e)
         return None
 
-# --- ФУНКЦИЯ СОКРАЩЕНИЯ ССЫЛКИ (БЕЗ HTTPS) ---
+# --- ФУНКЦИЯ СОКРАЩЕНИЯ ССЫЛКИ (ЧЕРЕЗ ЯНДЕКС) ---
 def shorten_link(url):
     try:
-        # Сокращаем ссылку через официальный метод ВК
-        res = vk.utils.getShortLink(url=url)
-        if 'short_url' in res:
-            # Убираем https:// и http:// из готовой ссылки
-            clean_url = res['short_url'].replace('https://', '').replace('http://', '')
+        # Сокращаем через Яндекс (clck.ru)
+        res = requests.get(f"https://clck.ru/--?url={url}", timeout=5)
+        if res.status_code == 200 and "http" in res.text:
+            # Убираем https:// из готовой ссылки
+            clean_url = res.text.strip().replace('https://', '').replace('http://', '')
             return clean_url
     except: pass
     return url
@@ -153,7 +153,7 @@ def get_report_kb():
         ]
     }, ensure_ascii=False)
 
-print("БОТ ЗАПУЩЕН (Ссылки без https)!")
+print("БОТ ЗАПУЩЕН (Короткие ссылки через Яндекс)!")
 
 try:
     longpoll = VkLongPoll(vk_session)
