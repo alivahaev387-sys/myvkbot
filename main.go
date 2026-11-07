@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -23,7 +22,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// ===== НАСТРОЙКИ =====
 const (
 	Token   = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMbjdYBmf-QH6dwf-ZL4dMYkKMEEiviqU5GPmM5kaG4Xt535Hb1ApvImzJkk_cq-Q7ZxOQYVPbnULj0Fg6U0yDNSPgLwANkGKX348kTlENY6s99NOBeUO-e486DAX-0XtbAa3tmQdMYjF2GLxluGvHrhFHhvr5YCuDXfYxTgw5cYo"
 	AdminID = 200005093141
@@ -34,15 +32,14 @@ var (
 	vk *api.VK
 	db *sql.DB
 
-	// Состояния с защитой от одновременного доступа (Mutex)
 	stateMutex          sync.Mutex
 	waitingMode         = make(map[int]string)
 	waitingForSupport   = make(map[int]bool)
 	waitingManualReport = make(map[int]bool)
-	waitingManualReply  = make(map[int]int) // AdminID -> target_user_id
+	waitingManualReply  = make(map[int]int)
 	usersInReport       = make(map[int]bool)
-	waitingForRating    = make(map[int]int) // userID -> reportID
-	activeReports       = make(map[int]int) // reportID -> userID
+	waitingForRating    = make(map[int]int)
+	activeReports       = make(map[int]int)
 )
 
 func main() {
@@ -57,10 +54,9 @@ func main() {
 	lp.MessageNew(handleMessage)
 	lp.MessageEvent(handleEvent)
 
-	// Запуск фоновой проверки разбана
 	go autoUnbanChecker()
 
-	log.Println("БОТ НА GO ЗАПУЩЕН!")
+	log.Println("БОТ НА GO УСПЕШНО ЗАПУЩЕН!")
 	if err := lp.Run(); err != nil {
 		log.Fatal("Ошибка запуска: ", err)
 	}
@@ -73,6 +69,8 @@ func initDB() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// Включаем режим WAL для лучшей работы при большой нагрузке
+	db.Exec("PRAGMA journal_mode=WAL;")
 	query := `CREATE TABLE IF NOT EXISTS users (
 		user_id INTEGER PRIMARY KEY,
 		warns INTEGER DEFAULT 0,
@@ -112,18 +110,15 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 	userID := msg.FromID
 	text := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(msg.Text, "@club242296265", "")))
 
-	// 1. ПИНГ (работает везде)
+	// ПИНГ
 	if text == "/ping" || text == "пинг" || text == "!пинг" {
 		pingMs := time.Now().UnixMilli() - int64(msg.Date)*1000
-		if pingMs < 0 {
-			pingMs = 0
-		}
-		pingText := fmt.Sprintf("🏓 Понг!\n\n⚡ Скорость: %d мс\n📊 Статус: 🟢 Отлично", pingMs)
-		sendMsg(peerID, pingText, nil)
+		if pingMs < 0 { pingMs = 0 }
+		sendMsg(peerID, fmt.Sprintf("🏓 Понг!\n\n⚡ Скорость: %d мс\n📊 Статус: 🟢 Отлично", pingMs), nil)
 		return
 	}
 
-	// Дальше только для ЛС
+	// Только ЛС
 	if peerID != userID {
 		return
 	}
@@ -131,21 +126,16 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 	warns, banUntil, uploads := getUserData(userID)
 	now := int(time.Now().Unix())
 
-	// Проверка разбана
 	if banUntil > 0 && banUntil <= now {
 		db.Exec("UPDATE users SET ban_until = 0 WHERE user_id = ?", userID)
-		banUntil = 0
-		sendMsg(peerID, "🎉 **ПРИВЕТСТВУЕМ СНОВА!**\n\nС вас снят ЧС. Больше не нарушайте!", getMainKB())
+		sendMsg(peerID, "🎉 **ПРИВЕТСТВУЕМ СНОВА!**\n\nС вас снят ЧС.", getMainKB())
 	}
 
-	// Проверка на бан
 	if banUntil > now {
-		left := banUntil - now
-		sendMsg(peerID, fmt.Sprintf("⛔ ВЫ В ЧС! Осталось: %d сек.", left), nil)
+		sendMsg(peerID, fmt.Sprintf("⛔ ВЫ В ЧС! Осталось: %d сек.", banUntil-now), nil)
 		return
 	}
 
-	// Команды админа
 	if userID == AdminID && (strings.Contains(text, "снять чс") || strings.Contains(text, "разбан")) {
 		if msg.ReplyMessage != nil {
 			target := msg.ReplyMessage.FromID
@@ -173,15 +163,14 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		return
 	}
 
-	// Ожидание ответа от Админа
 	if userID == AdminID {
 		stateMutex.Lock()
 		target, isWaiting := waitingManualReply[AdminID]
 		stateMutex.Unlock()
 		if isWaiting {
 			playerReply := fmt.Sprintf("📩 **Вам ответил администратор** [id%d|Владелец]:\n\n💬 *%s*\n\n👇 *Оцените или закройте:*", AdminID, msg.Text)
-			sendMsg(target, playerReply, getRatingKB(target, 0)) // ID репорта не критичен для кнопок здесь
-			sendMsg(AdminID, "✅ Ответ доставлен. Ожидаем оценку.", getMainKB())
+			sendMsg(target, playerReply, getRatingKB(target, 0))
+			sendMsg(AdminID, "✅ Ответ доставлен.", getMainKB())
 			stateMutex.Lock()
 			delete(waitingManualReply, AdminID)
 			stateMutex.Unlock()
@@ -189,7 +178,6 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		}
 	}
 
-	// Ввод оценки игроком
 	stateMutex.Lock()
 	_, isRating := waitingForRating[userID]
 	stateMutex.Unlock()
@@ -208,7 +196,6 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		return
 	}
 
-	// Режим отправки фото
 	stateMutex.Lock()
 	mode, isWaitingMode := waitingMode[peerID]
 	stateMutex.Unlock()
@@ -217,7 +204,6 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		return
 	}
 
-	// Меню
 	if text == "начать" || text == "start" {
 		sendMsg(peerID, "Привет! Выбирай действие:", getMainKB())
 	} else if strings.Contains(text, "несколько фото") {
@@ -244,7 +230,6 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 	}
 }
 
-// Обработка загрузки фото
 func handlePhotoUpload(peerID, userID int, msg object.MessagesMessage, mode string) {
 	if len(msg.Attachments) == 0 {
 		stateMutex.Lock()
@@ -253,9 +238,10 @@ func handlePhotoUpload(peerID, userID int, msg object.MessagesMessage, mode stri
 		return
 	}
 
-	// Запрашиваем полное сообщение (чтобы достать все фото из альбома)
-	fullMsg, err := vk.MessagesGetByID(params.NewMessagesGetByIDBuilder().MessageIDs([]int{msg.ID}).Params)
+	// Запрашиваем сообщение по ID, чтобы ВК отдал весь альбом
+	fullMsg, err := vk.MessagesGetByID(params.NewMessagesGetByIDBuilder().MessageIDs([]string{strconv.Itoa(msg.ID)}).Params)
 	if err != nil || len(fullMsg.Items) == 0 {
+		log.Println("Ошибка getById:", err)
 		return
 	}
 
@@ -265,7 +251,9 @@ func handlePhotoUpload(peerID, userID int, msg object.MessagesMessage, mode stri
 	for _, att := range attachments {
 		if att.Type == "photo" {
 			sizes := att.Photo.Sizes
-			links = append(links, sizes[len(sizes)-1].URL)
+			if len(sizes) > 0 {
+				links = append(links, sizes[len(sizes)-1].URL)
+			}
 		} else if att.Type == "doc" {
 			links = append(links, att.Doc.URL)
 		}
@@ -281,6 +269,10 @@ func handlePhotoUpload(peerID, userID int, msg object.MessagesMessage, mode stri
 	if mode == "one" || len(links) == 1 {
 		resText = fmt.Sprintf("🌿 **Твоя фотография загружена!**\n\n🔗 Ссылка: %s", shortenLink(links[0]))
 	} else {
+		// Выносим паузу в горутину, чтобы не блокировать бота
+		go func() {
+			time.Sleep(2 * time.Second)
+		}()
 		resText = "🌿 **Твои фотографии загружены!**\n\n"
 		for i, link := range links {
 			resText += fmt.Sprintf("🔗 Фото %d: %s\n\n", i+1, shortenLink(link))
@@ -295,19 +287,18 @@ func handlePhotoUpload(peerID, userID int, msg object.MessagesMessage, mode stri
 	stateMutex.Unlock()
 }
 
-// ===== ОБРАБОТКА ИНЛАЙН-КНОПОК =====
+// ===== ОБРАБОТКА ИНЛАЙН-КНОПОК (ИСПРАВЛЕНЫ ОШИБКИ С ТИПАМИ) =====
 func handleEvent(_ context.Context, obj events.MessageEventObject) {
 	payload := obj.Payload
 	userID := obj.UserID
 	peerID := obj.PeerID
-	eventID := obj.EventID
+	eventID := obj.EventID // ВК присылает eventID СТРОКОЙ
 
 	cmd, _ := payload["cmd"].(string)
 
-	// Кнопки "Оценить" и "Закрыть"
 	if cmd == "rate_report" {
 		stateMutex.Lock()
-		waitingForRating[userID] = 1 // Условный ID
+		waitingForRating[userID] = 1
 		stateMutex.Unlock()
 		sendMsg(peerID, "⭐ Напиши оценку от 1 до 10:", getMainKB())
 		sendEventAnswer(eventID, userID, peerID, "Ожидаю оценку...")
@@ -319,26 +310,30 @@ func handleEvent(_ context.Context, obj events.MessageEventObject) {
 		sendEventAnswer(eventID, userID, peerID, "Вопрос закрыт")
 	}
 
-	// Кнопки Админа
 	if userID == AdminID {
 		if cmd == "admin_reply" {
-			targetID, _ := payload["target_id"].(float64)
-			stateMutex.Lock()
-			waitingManualReply[AdminID] = int(targetID)
-			stateMutex.Unlock()
-			sendMsg(AdminID, "✍️ Напиши ответ игроку:", getMainKB())
-			sendEventAnswer(eventID, userID, peerID, "Пиши ответ...")
+			// ВК присылает числа как float64, приводим к int
+			if targetIDFloat, ok := payload["target_id"].(float64); ok {
+				targetID := int(targetIDFloat)
+				stateMutex.Lock()
+				waitingManualReply[AdminID] = targetID
+				stateMutex.Unlock()
+				sendMsg(AdminID, "✍️ Напиши ответ игроку:", getMainKB())
+				sendEventAnswer(eventID, userID, peerID, "Пиши ответ...")
+			}
 		} else if cmd == "admin_spam" {
-			targetID, _ := payload["target_id"].(float64)
-			w := addWarn(int(targetID))
-			sendMsg(int(targetID), fmt.Sprintf("🚫 Репорт отклонен (Спам). Варны: %d/3", w))
-			sendMsg(AdminID, "🚫 Игроку выдан варн.", getMainKB())
-			sendEventAnswer(eventID, userID, peerID, "Варн выдан")
+			if targetIDFloat, ok := payload["target_id"].(float64); ok {
+				targetID := int(targetIDFloat)
+				w := addWarn(targetID)
+				sendMsg(targetID, fmt.Sprintf("🚫 Репорт отклонен (Спам). Варны: %d/3", w))
+				sendMsg(AdminID, "🚫 Игроку выдан варн.", getMainKB())
+				sendEventAnswer(eventID, userID, peerID, "Варн выдан")
+			}
 		}
 	}
 }
 
-// ===== ФОНОВЫЕ ЗАДАЧИ И УТИЛИТЫ =====
+// ===== ФОНОВЫЕ ЗАДАЧИ =====
 func autoUnbanChecker() {
 	for {
 		time.Sleep(10 * time.Second)
@@ -349,7 +344,7 @@ func autoUnbanChecker() {
 				var u int
 				rows.Scan(&u)
 				db.Exec("UPDATE users SET ban_until = 0 WHERE user_id = ?", u)
-				sendMsg(u, "🎉 ЧС снят автоматически! Не нарушай больше.", getMainKB())
+				sendMsg(u, "🎉 ЧС снят автоматически!", getMainKB())
 			}
 			rows.Close()
 		}
@@ -357,12 +352,10 @@ func autoUnbanChecker() {
 }
 
 func shortenLink(link string) string {
-	// 1. Пробуем ВК
 	res, err := vk.UtilsGetShortLink(params.NewUtilsGetShortLinkBuilder().URL(link).Params)
 	if err == nil && res.ShortURL != "" {
 		return strings.ReplaceAll(res.ShortURL, "https://", "")
 	}
-	// 2. Пробуем CLICK.RU
 	resp, err := http.Get("https://clck.ru/--?url=" + url.QueryEscape(link))
 	if err == nil && resp.StatusCode == 200 {
 		body, _ := io.ReadAll(resp.Body)
@@ -386,7 +379,8 @@ func sendMsg(peerID int, text string, kb interface{}) {
 	}
 }
 
-func sendEventAnswer(eventID, userID, peerID int, text string) {
+// ИСПРАВЛЕНО: eventID теперь string
+func sendEventAnswer(eventID string, userID, peerID int, text string) {
 	b := params.NewMessagesSendMessageEventAnswerBuilder()
 	b.EventID(eventID)
 	b.UserID(userID)
@@ -395,7 +389,6 @@ func sendEventAnswer(eventID, userID, peerID int, text string) {
 	vk.MessagesSendMessageEventAnswer(b.Params)
 }
 
-// ===== КЛАВИАТУРЫ =====
 func getMainKB() *object.MessagesKeyboard {
 	kb := object.NewMessagesKeyboard(false)
 	kb.AddRow().AddTextButton("📸 Загрузить фото", "positive").AddTextButton("📸 Несколько фото", "positive")
@@ -410,9 +403,8 @@ func getSupportKB() *object.MessagesKeyboard {
 	return kb
 }
 
-// Инлайн-клавиатура для игрока
 func getRatingKB(targetID, reportID int) *object.MessagesKeyboard {
-	kb := object.NewMessagesKeyboard(true) // inline=true
+	kb := object.NewMessagesKeyboard(true)
 	kb.AddRow()
 	
 	payloadRate := map[string]interface{}{"cmd": "rate_report", "target_id": targetID, "report_id": reportID}
