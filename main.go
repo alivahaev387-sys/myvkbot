@@ -20,7 +20,7 @@ import (
 	"github.com/SevereCloud/vksdk/v3/events"
 	"github.com/SevereCloud/vksdk/v3/longpoll-bot"
 	"github.com/SevereCloud/vksdk/v3/object"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 const (
@@ -65,8 +65,7 @@ func main() {
 
 func initDB() {
 	var err error
-	// ИСПОЛЬЗУЕМ sqlite3 (с тройкой)
-	db, err = sql.Open("sqlite3", "super_bot.db")
+	db, err = sql.Open("sqlite", "super_bot.db")
 	if err != nil {
 		log.Fatal(err)
 	}
