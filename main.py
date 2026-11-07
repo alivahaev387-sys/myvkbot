@@ -416,9 +416,9 @@ try:
             if peer_id in waiting_mode:
                 mode = waiting_mode[peer_id]
                 
-                # ВАЖНО: Запрашиваем сообщение заново через API, чтобы ВК не "резал" альбом
+                # ИСПРАВЛЕНИЕ: передаем ID в виде строки (str), чтобы ВК отдал ВСЕ фото!
                 try:
-                    full_msg = vk.messages.getById(message_ids=msg['id'])['items'][0]
+                    full_msg = vk.messages.getById(message_ids=str(msg['id']))['items'][0]
                     attachments = full_msg.get('attachments', [])
                 except Exception as e:
                     print("Ошибка получения полного сообщения:", e)
@@ -449,7 +449,7 @@ try:
                             o_id = attach['video']['owner_id']
                             links.append(f"https://vk.com/video{o_id}_{v_id}")
                     
-                    # Отладка в консоль
+                    # Отладка: выведет в консоль, сколько фото нашел бот
                     print(f"--- ВК прислал вложений: {len(attachments)}. Найдено ссылок: {len(links)} ---")
                     
                     if mode == 'video':
