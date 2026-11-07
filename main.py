@@ -19,7 +19,7 @@ waiting_for_manual_report = set()
 waiting_for_manual_reply = {} 
 users_in_report = set() 
 waiting_for_rating = {}  
-waiting_for_feedback = {} # Ждем причину плохой/хорошей оценки
+waiting_for_feedback = {} 
 active_reports = {}
 
 # --- БАЗА ДАННЫХ ---
@@ -252,29 +252,37 @@ try:
                     vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "❌ Эта кнопка не для вас!"}))
                     continue
 
-            # ОБРАБОТКА НАЖАТИЯ НА КНОПКИ ФИДБЕКА (ПОЛОЖИТЕЛЬНЫЕ И ОТРИЦАТЕЛЬНЫЕ)
+            # ОБРАБОТКА КНОПОК ФИДБЕКА (ЗАЩИТА ОТ ПОВТОРНОГО НАЖАТИЯ)
             if payload.get("cmd") == "feedback":
+                report_id = payload.get("report_id")
+                
+                # Если игрока нет в ожидании (уже нажал или репорт закрыт)
+                if user_id not in waiting_for_feedback or waiting_for_feedback[user_id] != report_id:
+                    vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "❌ Вы уже оставили отзыв по этому вопросу!"}))
+                    continue
+
                 f_type = payload.get("type")
                 reason = payload.get("reason")
-                report_id = payload.get("report_id")
+                
+                # ЗАКРЫВАЕМ РЕПОРТ СРАЗУ ПОСЛЕ НАЖАТИЯ
+                if report_id in active_reports:
+                    del active_reports[report_id]
+                users_in_report.discard(user_id)
+                del waiting_for_feedback[user_id] # Убираем из ожидания (защита от второго клика)
                 
                 emoji = "⚠️" if f_type == "neg" else "✨"
                 f_type_text = "Недоволен" if f_type == "neg" else "Доволен"
                 
-                # Отправляем тебе (Админу) уведомление
+                # Отправляем тебе уведомление
                 send_msg(ADMIN_ID, f"{emoji} **Отзыв по репорту #{report_id}!**\n\n"
                                    f"👤 Игрок: [id{user_id}|Игрок]\n"
                                    f"📊 Оценка: {f_type_text}\n"
                                    f"💬 Причина: **{reason}**")
                                    
                 # Благодарим игрока
-                send_msg(peer_id, f"🙏 **Спасибо за ваш ответ!**\n\nМы зафиксировали: *{reason}*.\nВаше мнение очень важно для нас. Выбирай действие на кнопках 👇", keyboard=get_main_kb())
+                send_msg(peer_id, f"🙏 **Спасибо за ваш ответ!**\n\nМы зафиксировали: *{reason}*.\nРепорт закрыт. Выбирай действие на кнопках 👇", keyboard=get_main_kb())
                 
-                # Очищаем состояния, если они были
-                if user_id in waiting_for_feedback:
-                    del waiting_for_feedback[user_id]
-                
-                vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Спасибо!"}))
+                vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Спасибо! Репорт закрыт."}))
                 continue
 
             if user_id == ADMIN_ID:
@@ -609,16 +617,10 @@ try:
                         report_id = waiting_for_rating[user_id]
                         del waiting_for_rating[user_id]
                         
-                        # Закрываем репорт в базе сразу
-                        if report_id in active_reports:
-                            del active_reports[report_id]
-                        users_in_report.discard(user_id)
-                        
                         admin_msg = (f"⭐ **Новый отзыв!**\n\n"
                                      f"👤 Пользователь: [id{user_id}|Игрок]\n"
                                      f"🌟 Оценка: {rating}/10\n"
-                                     f"📄 По репорту: #{report_id}\n\n"
-                                     f"✅ Репорт успешно закрыт.")
+                                     f"📄 По репорту: #{report_id}\n\n")
                         send_msg(ADMIN_ID, admin_msg)
                         
                         # ===== ЛОГИКА ДЛЯ ПЛОХОЙ ОЦЕНКИ (1-5) =====
@@ -650,8 +652,13 @@ try:
                 report_id = waiting_for_feedback[user_id]
                 del waiting_for_feedback[user_id]
                 
+                # Закрываем репорт, раз он написал текст
+                if report_id in active_reports:
+                    del active_reports[report_id]
+                users_in_report.discard(user_id)
+                
                 send_msg(ADMIN_ID, f"⚠️ **Текстовый отзыв по репорту #{report_id}!**\n\n👤 Игрок: [id{user_id}|Игрок]\n💬 Текст: {text}")
-                send_msg(peer_id, "🙏 **Спасибо за подробности!** Мы передали это администрации. Выбирай действие на кнопках 👇", keyboard=get_main_kb())
+                send_msg(peer_id, "🙏 **Спасибо за подробности!** Мы передали это администрации. Репорт закрыт. Выбирай действие 👇", keyboard=get_main_kb())
                 continue
 
             if user_id in waiting_for_manual_report:
