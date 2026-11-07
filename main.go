@@ -35,12 +35,9 @@ var (
 
 	stateMutex          sync.Mutex
 	waitingMode         = make(map[int]string)
-	waitingForSupport   = make(map[int]bool)
-	waitingManualReport = make(map[int]bool)
 	waitingManualReply  = make(map[int]int)
 	usersInReport       = make(map[int]bool)
 	waitingForRating    = make(map[int]int)
-	activeReports       = make(map[int]int)
 )
 
 func main() {
@@ -53,7 +50,6 @@ func main() {
 	}
 
 	lp.MessageNew(handleMessage)
-	lp.MessageEvent(handleEvent)
 
 	go autoUnbanChecker()
 
@@ -144,28 +140,13 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		return
 	}
 
-	if userID == AdminID && text == "стата" {
-		rows, _ := db.Query("SELECT user_id, warns, ban_until, uploads FROM users")
-		defer rows.Close()
-		res := "📊 СТАТИСТИКА:\n\n"
-		for rows.Next() {
-			var u, w, b, up int
-			rows.Scan(&u, &w, &b, &up)
-			if w > 0 || b > now || up > 0 {
-				res += fmt.Sprintf("ID: %d\nВарны: %d/3\nЗагрузки: %d\n\n", u, w, up)
-			}
-		}
-		sendMsg(peerID, res, nil)
-		return
-	}
-
 	if userID == AdminID {
 		stateMutex.Lock()
 		target, isWaiting := waitingManualReply[AdminID]
 		stateMutex.Unlock()
 		if isWaiting {
-			playerReply := fmt.Sprintf("📩 **Вам ответил администратор** [id%d|Владелец]:\n\n💬 *%s*\n\n👇 *Оцените или закройте:*", AdminID, msg.Text)
-			sendMsg(target, playerReply, getRatingKB(target, 0))
+			playerReply := fmt.Sprintf("📩 **Вам ответил администратор** [id%d|Владелец]:\n\n💬 *%s*\n\n👇 *Пожалуйста, выберите действие на кнопках внизу:*", AdminID, msg.Text)
+			sendMsg(target, playerReply, getRatingKB())
 			sendMsg(AdminID, "✅ Ответ доставлен.", getMainKB())
 			stateMutex.Lock()
 			delete(waitingManualReply, AdminID)
@@ -187,7 +168,7 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 			delete(usersInReport, userID)
 			stateMutex.Unlock()
 		} else {
-			sendMsg(peerID, "❌ Введи число от 1 до 10.", getMainKB())
+			sendMsg(peerID, "❌ Введи число от 1 до 10.", getRatingKB())
 		}
 		return
 	}
@@ -218,9 +199,19 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		sendMsg(peerID, "📩 Выберите способ:", getSupportKB())
 	} else if strings.Contains(text, "свой вопрос") {
 		stateMutex.Lock()
-		waitingManualReport[userID] = true
+		waitingManualReply[userID] = userID
 		stateMutex.Unlock()
 		sendMsg(peerID, "✍️ Напиши свой вопрос:", getMainKB())
+	} else if strings.Contains(text, "⭐ оценить работу") {
+		stateMutex.Lock()
+		waitingForRating[userID] = 1
+		stateMutex.Unlock()
+		sendMsg(peerID, "⭐ Напиши оценку от 1 до 10:", getRatingKB())
+	} else if strings.Contains(text, "❌ закрыть вопрос") {
+		stateMutex.Lock()
+		delete(usersInReport, userID)
+		stateMutex.Unlock()
+		sendMsg(peerID, "✅ Ваш вопрос закрыт. Спасибо!", getMainKB())
 	} else {
 		sendMsg(peerID, "Выбери действие 👇", getMainKB())
 	}
@@ -278,53 +269,6 @@ func handlePhotoUpload(peerID, userID int, msg object.MessagesMessage, mode stri
 	stateMutex.Unlock()
 }
 
-func handleEvent(_ context.Context, obj events.MessageEventObject) {
-	var payload map[string]interface{}
-	payloadBytes, _ := json.Marshal(obj.Payload)
-	json.Unmarshal(payloadBytes, &payload)
-
-	userID := obj.UserID
-	peerID := obj.PeerID
-	eventID := obj.EventID
-
-	cmd, _ := payload["cmd"].(string)
-
-	if cmd == "rate_report" {
-		stateMutex.Lock()
-		waitingForRating[userID] = 1
-		stateMutex.Unlock()
-		sendMsg(peerID, "⭐ Напиши оценку от 1 до 10:", getMainKB())
-		sendEventAnswer(eventID, userID, peerID, "Ожидаю оценку...")
-	} else if cmd == "close_report" {
-		stateMutex.Lock()
-		delete(usersInReport, userID)
-		stateMutex.Unlock()
-		sendMsg(peerID, "✅ Ваш вопрос закрыт. Спасибо!", getMainKB())
-		sendEventAnswer(eventID, userID, peerID, "Вопрос закрыт")
-	}
-
-	if userID == AdminID {
-		if cmd == "admin_reply" {
-			if targetIDFloat, ok := payload["target_id"].(float64); ok {
-				targetID := int(targetIDFloat)
-				stateMutex.Lock()
-				waitingManualReply[AdminID] = targetID
-				stateMutex.Unlock()
-				sendMsg(AdminID, "✍️ Напиши ответ игроку:", getMainKB())
-				sendEventAnswer(eventID, userID, peerID, "Пиши ответ...")
-			}
-		} else if cmd == "admin_spam" {
-			if targetIDFloat, ok := payload["target_id"].(float64); ok {
-				targetID := int(targetIDFloat)
-				w := addWarn(targetID)
-				sendMsg(targetID, fmt.Sprintf("🚫 Репорт отклонен (Спам). Варны: %d/3", w))
-				sendMsg(AdminID, "🚫 Игроку выдан варн.", getMainKB())
-				sendEventAnswer(eventID, userID, peerID, "Варн выдан")
-			}
-		}
-	}
-}
-
 func autoUnbanChecker() {
 	for {
 		time.Sleep(10 * time.Second)
@@ -370,42 +314,28 @@ func sendMsg(peerID int, text string, kb interface{}) {
 	}
 }
 
-func sendEventAnswer(eventID string, userID, peerID int, text string) {
-	b := params.NewMessagesSendMessageEventAnswerBuilder()
-	b.EventID(eventID)
-	b.UserID(userID)
-	b.PeerID(peerID)
-	b.EventData(fmt.Sprintf(`{"type":"show_snackbar","text":"%s"}`, text))
-	vk.MessagesSendMessageEventAnswer(b.Params)
-}
+// ===== ИСПРАВЛЕННЫЕ КЛАВИАТУРЫ =====
+// В этой версии библиотеки вторым аргументом идет payload, а третьим — цвет.
 
 func getMainKB() *object.MessagesKeyboard {
 	kb := object.NewMessagesKeyboard(false)
-	kb.AddRow().AddTextButton("📸 Загрузить фото", "positive").AddTextButton("📸 Несколько фото", "positive")
-	kb.AddRow().AddTextButton("🎬 Загрузка видео", "primary").AddTextButton("📊 Статистика", "secondary")
-	kb.AddRow().AddTextButton("📖 Помощь", "negative")
+	kb.AddRow().AddTextButton("📸 Загрузить фото", nil, "positive").AddTextButton("📸 Несколько фото", nil, "positive")
+	kb.AddRow().AddTextButton("🎬 Загрузка видео", nil, "primary").AddTextButton("📊 Статистика", nil, "secondary")
+	kb.AddRow().AddTextButton("📖 Помощь", nil, "negative")
 	return kb
 }
 
 func getSupportKB() *object.MessagesKeyboard {
 	kb := object.NewMessagesKeyboard(false)
-	kb.AddRow().AddTextButton("📋 Выбор по шаблонам", "primary").AddTextButton("✍️ Свой вопрос", "positive")
+	kb.AddRow().AddTextButton("📋 Выбор по шаблонам", nil, "primary").AddTextButton("✍️ Свой вопрос", nil, "positive")
 	return kb
 }
 
-func getRatingKB(targetID, reportID int) *object.MessagesKeyboard {
-	kb := object.NewMessagesKeyboard(true)
+// Новая клавиатура для оценки — обычные текстовые кнопки
+func getRatingKB() *object.MessagesKeyboard {
+	kb := object.NewMessagesKeyboard(false)
 	kb.AddRow()
-	
-	payloadRate := map[string]interface{}{"cmd": "rate_report", "target_id": targetID, "report_id": reportID}
-	btnRate := object.NewCallbackButton("⭐ Оценить работу", payloadRate)
-	btnRate.Color = "positive"
-	
-	payloadClose := map[string]interface{}{"cmd": "close_report", "target_id": targetID, "report_id": reportID}
-	btnClose := object.NewCallbackButton("❌ Закрыть вопрос", payloadClose)
-	btnClose.Color = "negative"
-	
-	kb.AddButton(btnRate)
-	kb.AddButton(btnClose)
+	kb.AddTextButton("⭐ Оценить работу", nil, "positive")
+	kb.AddTextButton("❌ Закрыть вопрос", nil, "negative")
 	return kb
 }
