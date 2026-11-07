@@ -254,11 +254,10 @@ try:
                     vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "❌ Эта кнопка не для вас!"}))
                     continue
 
-            # ОБРАБОТКА КНОПОК ФИДБЕКА (ЗАЩИТА ОТ ПОВТОРНОГО НАЖАТИЯ)
+            # ОБРАБОТКА КНОПОК ФИДБЕКА
             if payload.get("cmd") == "feedback":
                 report_id = payload.get("report_id")
                 
-                # ЗАЩИТА: Если игрока нет в ожидании (уже нажал или репорт закрыт)
                 if user_id not in waiting_for_feedback or waiting_for_feedback[user_id] != report_id:
                     vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "❌ Вы уже оставили отзыв!"}))
                     continue
@@ -266,7 +265,6 @@ try:
                 f_type = payload.get("type")
                 reason = payload.get("reason")
                 
-                # ЗАКРЫВАЕМ РЕПОРТ СРАЗУ ПОСЛЕ НАЖАТИЯ
                 if report_id in active_reports:
                     del active_reports[report_id]
                 users_in_report.discard(user_id)
@@ -276,19 +274,17 @@ try:
                 emoji = "⚠️" if f_type == "neg" else "✨"
                 f_type_text = "Недоволен" if f_type == "neg" else "Доволен"
                 
-                # Отправляем тебе уведомление
                 send_msg(ADMIN_ID, f"{emoji} **Отзыв по репорту #{report_id}!**\n\n"
                                    f"👤 Игрок: [id{user_id}|Игрок]\n"
                                    f"📊 Оценка: {f_type_text}\n"
                                    f"💬 Причина: **{reason}**")
                                    
-                # Благодарим игрока
                 send_msg(peer_id, f"🙏 **Спасибо за ваш ответ!**\n\nМы зафиксировали: *{reason}*.\nРепорт закрыт. Выбирай действие на кнопках 👇", keyboard=get_main_kb())
                 
                 vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Спасибо! Репорт закрыт."}))
                 continue
 
-            # НОВОЕ: ОБРАБОТКА КНОПКИ "ЗАКРЫТЬ РЕПОРТ" В ФИДБЕКЕ
+            # ОБРАБОТКА КНОПКИ "ЗАКРЫТЬ РЕПОРТ" В ФИДБЕКЕ
             if payload.get("cmd") == "close_feedback_report":
                 report_id = payload.get("report_id")
                 
@@ -675,7 +671,6 @@ try:
                 report_id = waiting_for_feedback[user_id]
                 del waiting_for_feedback[user_id]
                 
-                # Закрываем репорт, раз он написал текст
                 if report_id in active_reports:
                     del active_reports[report_id]
                 users_in_report.discard(user_id)
