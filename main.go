@@ -29,7 +29,6 @@ const (
 	DBFile  = "users.json"
 )
 
-// Структура для хранения данных пользователя
 type UserData struct {
 	Warns    int `json:"warns"`
 	BanUntil int `json:"ban_until"`
@@ -44,8 +43,8 @@ var (
 
 	stateMutex         sync.Mutex
 	waitingMode        = make(map[int]string)
+	waitingForSupport  = make(map[int]bool) 
 	waitingManualReply = make(map[int]int)
-	usersInReport      = make(map[int]bool)
 	waitingForRating   = make(map[int]bool)
 )
 
@@ -62,13 +61,12 @@ func main() {
 
 	go autoUnbanChecker()
 
-	log.Println("БОТ НА GO УСПЕШНО ЗАПУЩЕН! (База: JSON)")
+	log.Println("БОТ НА GO УСПЕШНО ЗАПУЩЕН!")
 	if err := lp.Run(); err != nil {
 		log.Fatal("Ошибка запуска: ", err)
 	}
 }
 
-// ===== РАБОТА С ФАЙЛОМ БАЗЫ ДАННЫХ =====
 func loadDB() {
 	usersMutex.Lock()
 	defer usersMutex.Unlock()
@@ -107,14 +105,6 @@ func addUpload(userID int) {
 	updateUser(userID, w, b, up+1)
 }
 
-func addWarn(userID int) int {
-	w, b, up := getUserData(userID)
-	w++
-	updateUser(userID, w, b, up)
-	return w
-}
-
-// ===== ОБРАБОТКА СООБЩЕНИЙ =====
 func handleMessage(_ context.Context, obj events.MessageNewObject) {
 	msg := obj.Message
 	peerID := msg.PeerID
@@ -145,34 +135,21 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		return
 	}
 
-	if userID == AdminID && (strings.Contains(text, "снять чс") || strings.Contains(text, "разбан")) {
+	// Админ отвечает на сообщение
+	if userID == AdminID && strings.Contains(text, "ответ") {
 		if msg.ReplyMessage != nil {
 			target := msg.ReplyMessage.FromID
-			tw, tb, tu := getUserData(target)
-			updateUser(target, 0, 0, tu) // обнуляем варны и бан
-			sendMsg(AdminID, fmt.Sprintf("✅ С [id%d|Игрока] снят ЧС.", target), getMainKB())
-			sendMsg(target, "✅ Администратор снял с вас ЧС!", getMainKB())
-			_ = tw // чтобы компилятор не ругался
-			_ = tb
+			stateMutex.Lock()
+			waitingManualReply[AdminID] = target
+			stateMutex.Unlock()
+			sendMsg(AdminID, "✍️ Напиши текст ответа для игрока:", getMainKB())
 		} else {
-			sendMsg(AdminID, "❌ Ответь на сообщение игрока командой 'разбан'.", getMainKB())
+			sendMsg(AdminID, "❌ Ответь на сообщение игрока командой 'ответ'.", getMainKB())
 		}
 		return
 	}
 
-	if userID == AdminID && text == "стата" {
-		usersMutex.RLock()
-		res := "📊 СТАТИСТИКА:\n\n"
-		for u, data := range users {
-			if data.Warns > 0 || data.BanUntil > now || data.Uploads > 0 {
-				res += fmt.Sprintf("ID: %d\nВарны: %d/3\nЗагрузки: %d\n\n", u, data.Warns, data.Uploads)
-			}
-		}
-		usersMutex.RUnlock()
-		sendMsg(peerID, res, nil)
-		return
-	}
-
+	// Админ пишет ответ
 	if userID == AdminID {
 		stateMutex.Lock()
 		target, isWaiting := waitingManualReply[AdminID]
@@ -188,17 +165,33 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		}
 	}
 
+	// Игрок пишет вопрос в поддержку
+	stateMutex.Lock()
+	isSupport := waitingForSupport[userID]
+	stateMutex.Unlock()
+	if isSupport {
+		stateMutex.Lock()
+		delete(waitingForSupport, userID)
+		stateMutex.Unlock()
+
+		reportMsg := fmt.Sprintf("🆘 **Новый репорт от** [id%d|Игрока]:\n\n💬 %s", userID, msg.Text)
+		sendMsg(AdminID, reportMsg, nil)
+		sendMsg(peerID, "✅ Ваш репорт отправлен! Ожидайте ответа.", getMainKB())
+		return
+	}
+
+	// Игрок ставит оценку
 	stateMutex.Lock()
 	isRating := waitingForRating[userID]
 	stateMutex.Unlock()
 	if isRating {
 		rating, err := strconv.Atoi(msg.Text)
 		if err == nil && rating >= 1 && rating <= 10 {
-			sendMsg(AdminID, fmt.Sprintf("⭐ **Новый отзыв!**\n👤 [id%d|Игрок]\n🌟 Оценка: %d/10", userID, rating))
+            // ТУТ БЫЛА ОШИБКА, ДОБАВЛЕН nil
+			sendMsg(AdminID, fmt.Sprintf("⭐ **Новый отзыв!**\n👤 [id%d|Игрок]\n🌟 Оценка: %d/10", userID, rating), nil)
 			sendMsg(peerID, fmt.Sprintf("🤩 Спасибо за оценку %d/10! Репорт закрыт.", rating), getMainKB())
 			stateMutex.Lock()
 			delete(waitingForRating, userID)
-			delete(usersInReport, userID)
 			stateMutex.Unlock()
 		} else {
 			sendMsg(peerID, "❌ Введи число от 1 до 10.", getRatingKB())
@@ -206,6 +199,7 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		return
 	}
 
+	// Обработка фото
 	stateMutex.Lock()
 	mode, isWaitingMode := waitingMode[peerID]
 	stateMutex.Unlock()
@@ -214,6 +208,7 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		return
 	}
 
+	// Меню
 	if text == "начать" || text == "start" {
 		sendMsg(peerID, "Привет! Выбирай действие:", getMainKB())
 	} else if strings.Contains(text, "несколько фото") {
@@ -232,7 +227,7 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		sendMsg(peerID, "📩 Выберите способ:", getSupportKB())
 	} else if strings.Contains(text, "свой вопрос") {
 		stateMutex.Lock()
-		waitingManualReply[userID] = userID
+		waitingForSupport[userID] = true
 		stateMutex.Unlock()
 		sendMsg(peerID, "✍️ Напиши свой вопрос:", getMainKB())
 	} else if strings.Contains(text, "⭐ оценить работу") {
@@ -241,10 +236,6 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		stateMutex.Unlock()
 		sendMsg(peerID, "⭐ Напиши оценку от 1 до 10:", getRatingKB())
 	} else if strings.Contains(text, "❌ закрыть вопрос") {
-		stateMutex.Lock()
-		delete(usersInReport, userID)
-		delete(waitingForRating, userID)
-		stateMutex.Unlock()
 		sendMsg(peerID, "✅ Ваш вопрос закрыт. Спасибо!", getMainKB())
 	} else {
 		sendMsg(peerID, "Выбери действие 👇", getMainKB())
@@ -303,21 +294,28 @@ func handlePhotoUpload(peerID, userID int, msg object.MessagesMessage, mode stri
 	stateMutex.Unlock()
 }
 
-// ===== УТИЛИТЫ =====
 func autoUnbanChecker() {
 	for {
 		time.Sleep(10 * time.Second)
 		now := int(time.Now().Unix())
+		var toUnban []int
+
 		usersMutex.Lock()
 		for u, data := range users {
 			if data.BanUntil > 0 && data.BanUntil <= now {
 				data.BanUntil = 0
 				users[u] = data
-				sendMsg(u, "🎉 ЧС снят автоматически!", getMainKB())
+				toUnban = append(toUnban, u)
 			}
 		}
 		usersMutex.Unlock()
-		saveDB()
+
+		if len(toUnban) > 0 {
+			saveDB()
+			for _, u := range toUnban {
+				sendMsg(u, "🎉 ЧС снят автоматически!", getMainKB())
+			}
+		}
 	}
 }
 
