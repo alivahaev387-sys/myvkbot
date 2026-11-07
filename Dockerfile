@@ -3,10 +3,9 @@ WORKDIR /src
 COPY go.mod ./
 COPY . .
 RUN go mod tidy
-RUN CGO_ENABLED=0 GOOS=linux go build -o /usr/local/bin/bot .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /bot .
 
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates tzdata
-WORKDIR /app
-COPY --from=builder /usr/local/bin/bot .
-CMD ["./bot"]
+COPY --from=builder /bot /bot
+CMD ["/bot"]
