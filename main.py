@@ -217,7 +217,6 @@ try:
                     vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "❌ Эта кнопка не для вас!"}))
                     continue
 
-            # Обработка кнопок Админа в репорте
             if user_id == ADMIN_ID:
                 report_id = payload.get("report_id")
                 target_user = payload.get("target_id")
@@ -300,7 +299,6 @@ try:
                     vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Бан отменен"}))
                     continue
 
-            # Логика оценки
             if payload.get("cmd") == "rate_report":
                 if user_id in users_in_report:
                     waiting_for_rating.add(user_id)
@@ -363,7 +361,6 @@ try:
             warns, ban_until, uploads = get_user_data(user_id)
             current_time = int(time.time())
 
-            # Если бан истек, но в базе висит
             if ban_until > 0 and ban_until <= current_time:
                 conn = sqlite3.connect('super_bot.db')
                 c = conn.cursor()
@@ -382,7 +379,6 @@ try:
                 )
                 send_msg(user_id, unban_text, keyboard=get_main_kb())
 
-            # Если бан еще активен
             if ban_until > current_time:
                 if peer_id in waiting_mode: del waiting_mode[peer_id]
                 waiting_for_support.discard(user_id)
@@ -408,61 +404,68 @@ try:
                 send_msg(peer_id, ban_text)
                 continue 
 
-            # --- ОБРАБОТКА ФОТО/ВИДЕО (ЕСЛИ ЖДЕМ) ---
-            # Стоит ВЫШЕ текста, чтобы сразу ловить фото
+            # --- ОБРАБОТКА ФОТО/ВИДЕО ---
             if peer_id in waiting_mode:
                 attachments = msg.get('attachments', [])
-                links = []
-                is_video, is_photo = False, False
-                
-                for attach in attachments:
-                    if attach.get('type') == 'photo':
-                        is_photo = True
-                        sizes = attach['photo'].get('sizes', [])
-                        if sizes: links.append(sizes[-1]['url'])
-                    elif attach.get('type') == 'video':
-                        is_video = True
-                        v_id = attach['video']['id']
-                        o_id = attach['video']['owner_id']
-                        links.append(f"https://vk.com/video{o_id}_{v_id}")
-                
                 mode = waiting_mode[peer_id]
                 
-                if mode == 'video':
-                    if is_photo and not is_video:
-                        send_msg(peer_id, "❌ **Это не видео!**", keyboard=get_main_kb())
-                    elif is_video and links:
-                        add_upload(user_id)
-                        short_link = shorten_link(links[0])
-                        send_msg(peer_id, f"🎬 **Ссылка:**\n{short_link}", keyboard=get_main_kb())
-                    else:
-                        send_msg(peer_id, "❌ Отправь видео!", keyboard=get_main_kb())
-                elif mode == 'one':
-                    if is_photo and links:
-                        add_upload(user_id)
-                        short_link = shorten_link(links[0])
-                        final_text = (f"🌿 **Твоя фотография загружена!**\n\n"
-                                      f"🔗 Ссылка: {short_link}\n\n"
-                                      f"💾 **Как сохранить:**\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить».")
-                        send_msg(peer_id, final_text, keyboard=get_main_kb())
-                    else:
-                        send_msg(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
-                elif mode == 'multi':
-                    if is_photo and links:
-                        add_upload(user_id)
-                        final_text = "🌿 **Твои фотографии загружены!**\n\n"
-                        for i, link in enumerate(links, 1):
-                            short_link = shorten_link(link)
-                            final_text += f"🔗 Фото {i}: {short_link}\n\n"
-                        final_text += "💾 **Как сохранить:**\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить»."
-                        send_msg(peer_id, final_text, keyboard=get_main_kb())
-                    else:
-                        send_msg(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
-                
-                del waiting_mode[peer_id]
-                continue
+                if not attachments:
+                    # Если ждали фото, а написали текст - сбрасываем режим и идем дальше
+                    del waiting_mode[peer_id]
+                else:
+                    links = []
+                    is_video, is_photo = False, False
+                    
+                    for attach in attachments:
+                        if attach.get('type') == 'photo':
+                            is_photo = True
+                            sizes = attach['photo'].get('sizes', [])
+                            if sizes: links.append(sizes[-1]['url'])
+                        elif attach.get('type') == 'video':
+                            is_video = True
+                            v_id = attach['video']['id']
+                            o_id = attach['video']['owner_id']
+                            links.append(f"https://vk.com/video{o_id}_{v_id}")
+                    
+                    if mode == 'video':
+                        if is_photo and not is_video:
+                            send_msg(peer_id, "❌ **Это не видео!**", keyboard=get_main_kb())
+                        elif is_video and links:
+                            add_upload(user_id)
+                            short_link = shorten_link(links[0])
+                            send_msg(peer_id, f"🎬 **Ссылка:**\n{short_link}", keyboard=get_main_kb())
+                        else:
+                            send_msg(peer_id, "❌ Отправь видео!", keyboard=get_main_kb())
+                        del waiting_mode[peer_id]
+                        
+                    elif mode == 'one':
+                        if is_photo and links:
+                            add_upload(user_id)
+                            short_link = shorten_link(links[0])
+                            final_text = (f"🌿 **Твоя фотография загружена!**\n\n"
+                                          f"🔗 Ссылка: {short_link}\n\n"
+                                          f"💾 **Как сохранить:**\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить».")
+                            send_msg(peer_id, final_text, keyboard=get_main_kb())
+                        else:
+                            send_msg(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
+                        del waiting_mode[peer_id]
+                        
+                    elif mode == 'multi':
+                        if is_photo and links:
+                            add_upload(user_id)
+                            final_text = "🌿 **Фото загружено!**\n\n"
+                            for i, link in enumerate(links, 1):
+                                short_link = shorten_link(link)
+                                final_text += f"🔗 Фото {i}: {short_link}\n\n"
+                            final_text += "💾 **Как сохранить:**\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить».\n\n*Можешь отправить еще фото или нажми любую кнопку.*"
+                            send_msg(peer_id, final_text, keyboard=get_main_kb())
+                        else:
+                            send_msg(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
+                        # Режим multi НЕ удаляем, чтобы можно было отправить еще
+                    
+                    continue
 
-            # --- ОСТАЛЬНЫЕ ТЕКСТОВЫЕ КОМАНДЫ ---
+            # --- ТЕКСТОВЫЕ КОМАНДЫ ---
             if text_lower in ["пинг", "ping", "/ping", "/пинг", "!ping", "!пинг"]:
                 ping_ms = int((time.time() - msg.get('date', time.time())) * 1000)
                 if ping_ms < 0: ping_ms = 0
@@ -580,7 +583,7 @@ try:
                 send_msg(peer_id, "🎬 **Отправь мне видео!**", keyboard=get_main_kb())
             elif "несколько" in text_lower:
                 waiting_mode[peer_id] = 'multi'
-                send_msg(peer_id, "📸 **Отправь мне несколько фото!**", keyboard=get_main_kb())
+                send_msg(peer_id, "📸 **Отправь мне несколько фото!**\n*(Можешь отправлять их по одному)*", keyboard=get_main_kb())
             elif "загрузить фото" in text_lower or "создать ссылку" in text_lower:
                 waiting_mode[peer_id] = 'one'
                 send_msg(peer_id, "📸 **Отправь мне фотографию, и я сделаю из неё прямую ссылку!**", keyboard=get_main_kb())
