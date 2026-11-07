@@ -19,6 +19,7 @@ waiting_for_manual_report = set()
 waiting_for_manual_reply = {} 
 users_in_report = set() 
 waiting_for_rating = {}  
+waiting_for_feedback = {} # НОВОЕ: ожидание причины плохой оценки
 active_reports = {}
 
 # --- БАЗА ДАННЫХ ---
@@ -142,6 +143,18 @@ def get_templates_kb():
             [{"action": {"type": "text", "label": "❌ Видео не скачивается"}, "color": "secondary"},
              {"action": {"type": "text", "label": "❌ На iPhone не сохраняется"}, "color": "secondary"}],
             [{"action": {"type": "text", "label": "⬅️ Назад"}, "color": "secondary"}]
+        ]
+    }, ensure_ascii=False)
+
+# НОВАЯ КЛАВИАТУРА: 4 кнопки для плохой оценки
+def get_feedback_kb():
+    return json.dumps({
+        "one_time": False,
+        "buttons": [
+            [{"action": {"type": "text", "label": "⏳ Давно без ответа"}, "color": "secondary"},
+             {"action": {"type": "text", "label": "🚫 Не помог"}, "color": "secondary"}],
+            [{"action": {"type": "text", "label": "❓ Не понял ответ"}, "color": "secondary"},
+             {"action": {"type": "text", "label": "😡 Грубость"}, "color": "secondary"}]
         ]
     }, ensure_ascii=False)
 
@@ -351,9 +364,7 @@ try:
             text = msg.get('text', '').strip()
             text_lower = text.lower().replace("@club242296265", "").strip()
 
-            # =====================================================================
-            # ИЗМЕНЕНИЕ: КОМАНДА ПИНГ ТЕПЕРЬ РАБОТАЕТ ВЕЗДЕ (И В БЕСЕДАХ, И В ЛС)
-            # =====================================================================
+            # КОМАНДА ПИНГ (РАБОТАЕТ ВЕЗДЕ)
             if text_lower in ["пинг", "ping", "/ping", "/пинг", "!ping", "!пинг"]:
                 ping_ms = int((time.time() - msg.get('date', time.time())) * 1000)
                 if ping_ms < 0: ping_ms = 0
@@ -363,11 +374,10 @@ try:
                     f"⚡ Скорость соединения: {ping_ms} мс\n"
                     f"📊 Статус сети: 🟢 Отлично"
                 )
-                # Отправляем пинг без клавиатуры
                 send_msg(peer_id, ping_text, keyboard=None)
                 continue 
 
-            # Дальше идут команды, которые работают ТОЛЬКО в личных сообщениях (ЛС)
+            # Дальше только для ЛС
             is_ls = (peer_id == user_id)
             if not is_ls:
                 continue 
@@ -427,6 +437,7 @@ try:
                 waiting_for_support.discard(user_id)
                 waiting_for_manual_report.discard(user_id)
                 if user_id in waiting_for_rating: del waiting_for_rating[user_id]
+                if user_id in waiting_for_feedback: del waiting_for_feedback[user_id]
                 
                 seconds_left = ban_until - current_time
                 if seconds_left < 60:
@@ -557,34 +568,76 @@ try:
                     rating = int(text)
                     if 1 <= rating <= 10:
                         report_id = waiting_for_rating[user_id]
-                        
-                        if report_id in active_reports:
-                            del active_reports[report_id]
-                        users_in_report.discard(user_id)
                         del waiting_for_rating[user_id]
                         
                         admin_msg = (f"⭐ **Новый отзыв!**\n\n"
                                      f"👤 Пользователь: [id{user_id}|Игрок]\n"
                                      f"🌟 Оценка: {rating}/10\n"
-                                     f"📄 По репорту: #{report_id}\n\n"
-                                     f"✅ Репорт успешно закрыт.")
+                                     f"📄 По репорту: #{report_id}\n\n")
                         send_msg(ADMIN_ID, admin_msg)
                         
-                        if 1 <= rating <= 3:
-                            user_msg = (f"😔 **Спасибо за отзыв (Оценка: {rating}/10).**\n\n"
-                                        f"Нам очень жаль, что мы не смогли решить вашу проблему идеально.\n\n🔒 *Ваше обращение закрыто.*")
-                        elif 4 <= rating <= 7:
-                            user_msg = (f"🙂 **Спасибо за отзыв (Оценка: {rating}/10).**\n\n"
-                                        f"Мы рады, что смогли вам помочь!\n\n🔒 *Ваше обращение закрыто.*")
-                        else: 
-                            user_msg = (f"🤩 **Огромное спасибо! (Оценка: {rating}/10)**\n\n"
-                                        f"Мы очень рады, что вам всё понравилось!\n\n🔒 *Ваше обращение закрыто.*")
-                        
-                        send_msg(peer_id, user_msg, keyboard=get_main_kb())
+                        # ===== ЛОГИКА ДЛЯ ПЛОХОЙ ОЦЕНКИ (1-5) =====
+                        if 1 <= rating <= 5:
+                            # Не удаляем активный репорт, так как ждем фидбек
+                            waiting_for_feedback[user_id] = report_id
+                            
+                            feedback_text = (f"😔 **Спасибо за ваш отзыв (Оценка: {rating}/10).**\n\n"
+                                             f"Нам очень жаль, что мы не оправдали ваших ожиданий.\n"
+                                             f"Подскажите, пожалуйста, что именно вам не понравилось? (Выберите на кнопках ниже или напишите текстом):")
+                            send_msg(peer_id, feedback_text, keyboard=get_feedback_kb())
+                            
+                        # ===== ЛОГИКА ДЛЯ ОЦЕНОК 6-9 =====
+                        elif 6 <= rating <= 9:
+                            # Закрываем репорт
+                            if report_id in active_reports: del active_reports[report_id]
+                            users_in_report.discard(user_id)
+                            
+                            user_msg = (f"🫡 **Спасибо за ваш честный отзыв! (Оценка: {rating}/10)**\n\n"
+                                        f"Мы видим, что до идеала (10/10) еще есть куда стремиться, и мы обязательно прокачаем наш сервис! Ваше мнение для нас — мощный пинок к развитию. 💪\n\n"
+                                        f"Если остались какие-то вопросы, просто напишите нам снова.\n"
+                                        f"🔒 *Репорт закрыт.*")
+                            send_msg(peer_id, user_msg, keyboard=get_main_kb())
+                            
+                        # ===== ЛОГИКА ДЛЯ 10/10 =====
+                        elif rating == 10:
+                            if report_id in active_reports: del active_reports[report_id]
+                            users_in_report.discard(user_id)
+                            
+                            user_msg = (f"🔥🔥🔥 **БОЖЕСТВЕННО! 10/10!** 🔥🔥🔥\n\n"
+                                        f"ОГРОМНОЕ, ПРОСТО ГИГАНТСКОЕ СПАСИБО! Вы просто космос! 🌌 Мы безумно рады, что смогли решить ваш вопрос на максимальный балл. Ваша поддержка — это лучшая мотивация для нашей команды! ❤️\n\n"
+                                        f"Всегда рады помочь! Обращайтесь в любое время.\n"
+                                        f"🔒 *Репорт закрыт.*")
+                            send_msg(peer_id, user_msg, keyboard=get_main_kb())
+                            
                     else:
                         send_msg(peer_id, "❌ **Ошибка:** Оценка должна быть числом от 1 до 10. Попробуйте еще раз.", keyboard=get_main_kb())
                 except ValueError:
                     send_msg(peer_id, "❌ **Ошибка:** Пожалуйста, введите именно число (например: 5).", keyboard=get_main_kb())
+                continue
+
+            # НОВЫЙ БЛОК: ОБРАБОТКА ПРИЧИНЫ ПЛОХОЙ ОЦЕНКИ
+            if user_id in waiting_for_feedback:
+                report_id = waiting_for_feedback[user_id]
+                del waiting_for_feedback[user_id] # Сбрасываем ожидание
+                
+                # Удаляем репорт из активных
+                if report_id in active_reports:
+                    del active_reports[report_id]
+                users_in_report.discard(user_id)
+                
+                # Отправляем жалобу тебе (Админу)
+                admin_feedback = (f"⚠️ **Игрок [id{user_id}|Игрок] оставил недовольный отзыв!**\n\n"
+                                  f"📄 По репорту: #{report_id}\n"
+                                  f"💬 Причина: **{text}**\n\n"
+                                  f"👉 *Рекомендуем связаться с игроком и уточнить детали.*")
+                send_msg(ADMIN_ID, admin_feedback)
+                
+                # Благодарим игрока
+                user_thanks = (f"🙏 **Спасибо за вашу обратную связь!**\n\n"
+                               f"Мы зафиксировали причину: *{text}*.\n"
+                               f"Администрация обязательно разберется в этой ситуации и примет меры.\n\n"
+                               f"🔒 *Репорт закрыт.*")
+                send_msg(peer_id, user_thanks, keyboard=get_main_kb())
                 continue
 
             if user_id in waiting_for_manual_report:
