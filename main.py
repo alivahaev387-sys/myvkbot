@@ -18,7 +18,7 @@ waiting_for_support = set()
 waiting_for_manual_report = set()
 waiting_for_manual_reply = {} 
 users_in_report = set() 
-waiting_for_rating = {}  
+waiting_for_rating = {}  # Изменено на словарь, чтобы запоминать ID репорта
 active_reports = {}
 
 # --- БАЗА ДАННЫХ ---
@@ -145,6 +145,7 @@ def get_templates_kb():
         ]
     }, ensure_ascii=False)
 
+# ОБНОВЛЕНО: Теперь передаем ID репорта в кнопки, чтобы бот знал, какой именно репорт закрывать
 def get_rating_kb(target_user_id, report_id):
     return json.dumps({
         "inline": True,
@@ -311,7 +312,7 @@ try:
             if payload.get("cmd") == "rate_report":
                 if user_id in users_in_report:
                     report_id = payload.get("report_id")
-                    waiting_for_rating[user_id] = report_id  
+                    waiting_for_rating[user_id] = report_id  # Сохраняем ID репорта
                     
                     text_rate = (f"⭐ **Оцените работу администратора!**\n\n"
                                  f"Пожалуйста, напишите оценку от 1 до 10 одним числом (например: 10).")
@@ -325,6 +326,7 @@ try:
                 if user_id in users_in_report:
                     report_id = payload.get("report_id")
                     
+                    # Очищаем данные
                     if report_id in active_reports:
                         del active_reports[report_id]
                     users_in_report.discard(user_id)
@@ -351,23 +353,6 @@ try:
             text = msg.get('text', '').strip()
             text_lower = text.lower().replace("@club242296265", "").strip()
 
-            # =====================================================================
-            # ИЗМЕНЕНИЕ: КОМАНДА ПИНГ ТЕПЕРЬ РАБОТАЕТ ВЕЗДЕ (И В БЕСЕДАХ, И В ЛС)
-            # =====================================================================
-            if text_lower in ["пинг", "ping", "/ping", "/пинг", "!ping", "!пинг"]:
-                ping_ms = int((time.time() - msg.get('date', time.time())) * 1000)
-                if ping_ms < 0: ping_ms = 0
-                
-                ping_text = (
-                    f"🏓 Понг!\n\n"
-                    f"⚡ Скорость соединения: {ping_ms} мс\n"
-                    f"📊 Статус сети: 🟢 Отлично"
-                )
-                # Отправляем пинг без клавиатуры
-                send_msg(peer_id, ping_text, keyboard=None)
-                continue 
-
-            # Дальше идут команды, которые работают ТОЛЬКО в личных сообщениях (ЛС)
             is_ls = (peer_id == user_id)
             if not is_ls:
                 continue 
@@ -525,6 +510,18 @@ try:
                     continue
 
             # --- ТЕКСТОВЫЕ КОМАНДЫ ---
+            if text_lower in ["пинг", "ping", "/ping", "/пинг", "!ping", "!пинг"]:
+                ping_ms = int((time.time() - msg.get('date', time.time())) * 1000)
+                if ping_ms < 0: ping_ms = 0
+                
+                ping_text = (
+                    f"🏓 Понг!\n\n"
+                    f"⚡ Скорость соединения: {ping_ms} мс\n"
+                    f"📊 Статус сети: 🟢 Отлично"
+                )
+                send_msg(peer_id, ping_text, keyboard=None)
+                continue 
+
             if text_lower == "начать" or text_lower == "start":
                 send_msg(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
                 continue
@@ -540,12 +537,14 @@ try:
                     del waiting_for_manual_reply[ADMIN_ID]
                     continue
 
+                # Красивый текст для игрока с кнопками
                 player_reply = (f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n"
                                 f"💬 *{text}*\n\n"
                                 f"👇 *Пожалуйста, оцените работу или закройте вопрос:*")
                                 
                 send_msg(target_user_id, player_reply, keyboard=get_rating_kb(target_user_id, report_id))
                 
+                # Сообщение тебе, что ответ улетел (репорт НЕ закрываем!)
                 send_msg(ADMIN_ID, f"✅ **Ответ доставлен игроку!**\n👤 Кому: [id{target_user_id}|Игрок]\n📝 Текст: {text}\n\n⏳ *Ожидаем, пока игрок закроет репорт или поставит оценку.*", keyboard=get_main_kb())
                 
                 del waiting_for_manual_reply[ADMIN_ID]
@@ -558,6 +557,7 @@ try:
                     if 1 <= rating <= 10:
                         report_id = waiting_for_rating[user_id]
                         
+                        # Закрываем репорт
                         if report_id in active_reports:
                             del active_reports[report_id]
                         users_in_report.discard(user_id)
