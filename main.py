@@ -67,14 +67,25 @@ def add_warn(user_id):
 
 init_db()
 
-# --- СОКРАЩЕНИЕ ССЫЛОК (ДЕЛАЕТ VK.CC) ---
+# --- УЛУЧШЕННОЕ СОКРАЩЕНИЕ ССЫЛОК (VK.CC + CLICK.RU) ---
 def shorten_link(url):
+    # 1. Пытаемся сократить через ВК
     try:
         res = vk.utils.getShortLink(url=url)
         if 'short_url' in res:
             return res['short_url'].replace('https://', '').replace('http://', '')
-    except Exception as e: 
-        print(f"Ошибка сокращения ссылки: {e}")
+    except Exception:
+        pass # Если ВК не смог (он не сокращает картинки), идем дальше
+    
+    # 2. Если ВК не смог, сокращаем через CLICK.RU (как на твоем скриншоте)
+    try:
+        res = requests.get(f"https://clck.ru/--?url={url}", timeout=5)
+        if res.status_code == 200:
+            return res.text.strip().replace('https://', '').replace('http://', '')
+    except Exception:
+        pass
+        
+    # 3. Если вообще ничего не вышло, возвращаем оригинал
     return url.replace('https://', '').replace('http://', '')
 
 # --- ФУНКЦИЯ ОТПРАВКИ ---
@@ -454,12 +465,13 @@ try:
                     elif mode == 'multi':
                         if is_photo and links:
                             add_upload(user_id)
-                            # Вот тут формируется текст точь-в-точь как на скриншоте
                             final_text = "🌿 **Твои фотографии загружены!**\n\n"
                             
+                            # Перебираем все ссылки (до 10 штук)
                             for i, link in enumerate(links, 1):
                                 short_link = shorten_link(link)
                                 final_text += f"🔗 Фото {i}: {short_link}\n\n"
+                                time.sleep(0.3) # Пауза, чтобы ВК не блокировал запросы
                                 
                             final_text += "💾 *Скопируй ссылки и открой в браузере.*"
                             send_msg(peer_id, final_text, keyboard=get_main_kb())
@@ -587,7 +599,7 @@ try:
                 send_msg(peer_id, "🎬 **Отправь мне видео!**", keyboard=get_main_kb())
             elif "несколько" in text_lower:
                 waiting_mode[peer_id] = 'multi'
-                send_msg(peer_id, "📸 **Отправь мне несколько фото!**", keyboard=get_main_kb())
+                send_msg(peer_id, "📸 **Отправь мне несколько фото!**\n\n⚠️ *Важно: прикрепи все фото к **одному сообщению** (до 10 штук), чтобы я выдал все ссылки сразу.*", keyboard=get_main_kb())
             elif "загрузить фото" in text_lower or "создать ссылку" in text_lower:
                 waiting_mode[peer_id] = 'one'
                 send_msg(peer_id, "📸 **Отправь мне фотографию, и я сделаю из неё прямую ссылку!**", keyboard=get_main_kb())
