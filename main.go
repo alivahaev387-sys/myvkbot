@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +9,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,29 +20,38 @@ import (
 	"github.com/SevereCloud/vksdk/v3/events"
 	"github.com/SevereCloud/vksdk/v3/longpoll-bot"
 	"github.com/SevereCloud/vksdk/v3/object"
-	_ "modernc.org/sqlite"
 )
 
 const (
 	Token   = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMbjdYBmf-QH6dwf-ZL4dMYkKMEEiviqU5GPmM5kaG4Xt535Hb1ApvImzJkk_cq-Q7ZxOQYVPbnULj0Fg6U0yDNSPgLwANkGKX348kTlENY6s99NOBeUO-e486DAX-0XtbAa3tmQdMYjF2GLxluGvHrhFHhvr5YCuDXfYxTgw5cYo"
 	AdminID = 200005093141
 	GroupID = 242296265
+	DBFile  = "users.json"
 )
+
+// Структура для хранения данных пользователя
+type UserData struct {
+	Warns    int `json:"warns"`
+	BanUntil int `json:"ban_until"`
+	Uploads  int `json:"uploads"`
+}
 
 var (
 	vk *api.VK
-	db *sql.DB
 
-	stateMutex          sync.Mutex
-	waitingMode         = make(map[int]string)
-	waitingManualReply  = make(map[int]int)
-	usersInReport       = make(map[int]bool)
-	waitingForRating    = make(map[int]int)
+	usersMutex sync.RWMutex
+	users      = make(map[int]UserData)
+
+	stateMutex         sync.Mutex
+	waitingMode        = make(map[int]string)
+	waitingManualReply = make(map[int]int)
+	usersInReport      = make(map[int]bool)
+	waitingForRating   = make(map[int]bool)
 )
 
 func main() {
 	vk = api.NewVK(Token)
-	initDB()
+	loadDB()
 
 	lp, err := longpoll.NewLongPoll(vk, GroupID)
 	if err != nil {
@@ -53,51 +62,59 @@ func main() {
 
 	go autoUnbanChecker()
 
-	log.Println("БОТ НА GO УСПЕШНО ЗАПУЩЕН!")
+	log.Println("БОТ НА GO УСПЕШНО ЗАПУЩЕН! (База: JSON)")
 	if err := lp.Run(); err != nil {
 		log.Fatal("Ошибка запуска: ", err)
 	}
 }
 
-func initDB() {
-	var err error
-	db, err = sql.Open("sqlite", "super_bot.db")
-	if err != nil {
-		log.Fatal(err)
+// ===== РАБОТА С ФАЙЛОМ БАЗЫ ДАННЫХ =====
+func loadDB() {
+	usersMutex.Lock()
+	defer usersMutex.Unlock()
+	file, err := os.ReadFile(DBFile)
+	if err == nil {
+		json.Unmarshal(file, &users)
 	}
-	db.Exec("PRAGMA journal_mode=WAL;")
-	query := `CREATE TABLE IF NOT EXISTS users (
-		user_id INTEGER PRIMARY KEY,
-		warns INTEGER DEFAULT 0,
-		ban_until INTEGER DEFAULT 0,
-		uploads INTEGER DEFAULT 0
-	);`
-	_, err = db.Exec(query)
-	if err != nil {
-		log.Fatal(err)
-	}
+}
+
+func saveDB() {
+	usersMutex.RLock()
+	data, _ := json.MarshalIndent(users, "", "  ")
+	usersMutex.RUnlock()
+	os.WriteFile(DBFile, data, 0644)
 }
 
 func getUserData(userID int) (warns, banUntil, uploads int) {
-	err := db.QueryRow("SELECT warns, ban_until, uploads FROM users WHERE user_id = ?", userID).Scan(&warns, &banUntil, &uploads)
-	if err == sql.ErrNoRows {
-		db.Exec("INSERT INTO users (user_id, warns, ban_until, uploads) VALUES (?, 0, 0, 0)", userID)
+	usersMutex.RLock()
+	defer usersMutex.RUnlock()
+	u, exists := users[userID]
+	if !exists {
 		return 0, 0, 0
 	}
-	return
+	return u.Warns, u.BanUntil, u.Uploads
+}
+
+func updateUser(userID int, warns, banUntil, uploads int) {
+	usersMutex.Lock()
+	users[userID] = UserData{Warns: warns, BanUntil: banUntil, Uploads: uploads}
+	usersMutex.Unlock()
+	saveDB()
 }
 
 func addUpload(userID int) {
-	db.Exec("UPDATE users SET uploads = uploads + 1 WHERE user_id = ?", userID)
+	w, b, up := getUserData(userID)
+	updateUser(userID, w, b, up+1)
 }
 
 func addWarn(userID int) int {
-	w, _, _ := getUserData(userID)
+	w, b, up := getUserData(userID)
 	w++
-	db.Exec("UPDATE users SET warns = ? WHERE user_id = ?", w, userID)
+	updateUser(userID, w, b, up)
 	return w
 }
 
+// ===== ОБРАБОТКА СООБЩЕНИЙ =====
 func handleMessage(_ context.Context, obj events.MessageNewObject) {
 	msg := obj.Message
 	peerID := msg.PeerID
@@ -115,11 +132,11 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		return
 	}
 
-	_, banUntil, uploads := getUserData(userID)
+	warns, banUntil, uploads := getUserData(userID)
 	now := int(time.Now().Unix())
 
 	if banUntil > 0 && banUntil <= now {
-		db.Exec("UPDATE users SET ban_until = 0 WHERE user_id = ?", userID)
+		updateUser(userID, warns, 0, uploads)
 		sendMsg(peerID, "🎉 **ПРИВЕТСТВУЕМ СНОВА!**\n\nС вас снят ЧС.", getMainKB())
 	}
 
@@ -131,12 +148,28 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 	if userID == AdminID && (strings.Contains(text, "снять чс") || strings.Contains(text, "разбан")) {
 		if msg.ReplyMessage != nil {
 			target := msg.ReplyMessage.FromID
-			db.Exec("UPDATE users SET warns = 0, ban_until = 0 WHERE user_id = ?", target)
+			tw, tb, tu := getUserData(target)
+			updateUser(target, 0, 0, tu) // обнуляем варны и бан
 			sendMsg(AdminID, fmt.Sprintf("✅ С [id%d|Игрока] снят ЧС.", target), getMainKB())
 			sendMsg(target, "✅ Администратор снял с вас ЧС!", getMainKB())
+			_ = tw // чтобы компилятор не ругался
+			_ = tb
 		} else {
 			sendMsg(AdminID, "❌ Ответь на сообщение игрока командой 'разбан'.", getMainKB())
 		}
+		return
+	}
+
+	if userID == AdminID && text == "стата" {
+		usersMutex.RLock()
+		res := "📊 СТАТИСТИКА:\n\n"
+		for u, data := range users {
+			if data.Warns > 0 || data.BanUntil > now || data.Uploads > 0 {
+				res += fmt.Sprintf("ID: %d\nВарны: %d/3\nЗагрузки: %d\n\n", u, data.Warns, data.Uploads)
+			}
+		}
+		usersMutex.RUnlock()
+		sendMsg(peerID, res, nil)
 		return
 	}
 
@@ -145,7 +178,7 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		target, isWaiting := waitingManualReply[AdminID]
 		stateMutex.Unlock()
 		if isWaiting {
-			playerReply := fmt.Sprintf("📩 **Вам ответил администратор** [id%d|Владелец]:\n\n💬 *%s*\n\n👇 *Пожалуйста, выберите действие на кнопках внизу:*", AdminID, msg.Text)
+			playerReply := fmt.Sprintf("📩 **Вам ответил администратор** [id%d|Владелец]:\n\n💬 *%s*\n\n👇 *Выберите действие на кнопках внизу:*", AdminID, msg.Text)
 			sendMsg(target, playerReply, getRatingKB())
 			sendMsg(AdminID, "✅ Ответ доставлен.", getMainKB())
 			stateMutex.Lock()
@@ -156,7 +189,7 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 	}
 
 	stateMutex.Lock()
-	_, isRating := waitingForRating[userID]
+	isRating := waitingForRating[userID]
 	stateMutex.Unlock()
 	if isRating {
 		rating, err := strconv.Atoi(msg.Text)
@@ -204,12 +237,13 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		sendMsg(peerID, "✍️ Напиши свой вопрос:", getMainKB())
 	} else if strings.Contains(text, "⭐ оценить работу") {
 		stateMutex.Lock()
-		waitingForRating[userID] = 1
+		waitingForRating[userID] = true
 		stateMutex.Unlock()
 		sendMsg(peerID, "⭐ Напиши оценку от 1 до 10:", getRatingKB())
 	} else if strings.Contains(text, "❌ закрыть вопрос") {
 		stateMutex.Lock()
 		delete(usersInReport, userID)
+		delete(waitingForRating, userID)
 		stateMutex.Unlock()
 		sendMsg(peerID, "✅ Ваш вопрос закрыт. Спасибо!", getMainKB())
 	} else {
@@ -269,20 +303,21 @@ func handlePhotoUpload(peerID, userID int, msg object.MessagesMessage, mode stri
 	stateMutex.Unlock()
 }
 
+// ===== УТИЛИТЫ =====
 func autoUnbanChecker() {
 	for {
 		time.Sleep(10 * time.Second)
 		now := int(time.Now().Unix())
-		rows, _ := db.Query("SELECT user_id FROM users WHERE ban_until > 0 AND ban_until <= ?", now)
-		if rows != nil {
-			for rows.Next() {
-				var u int
-				rows.Scan(&u)
-				db.Exec("UPDATE users SET ban_until = 0 WHERE user_id = ?", u)
+		usersMutex.Lock()
+		for u, data := range users {
+			if data.BanUntil > 0 && data.BanUntil <= now {
+				data.BanUntil = 0
+				users[u] = data
 				sendMsg(u, "🎉 ЧС снят автоматически!", getMainKB())
 			}
-			rows.Close()
 		}
+		usersMutex.Unlock()
+		saveDB()
 	}
 }
 
@@ -314,9 +349,6 @@ func sendMsg(peerID int, text string, kb interface{}) {
 	}
 }
 
-// ===== ИСПРАВЛЕННЫЕ КЛАВИАТУРЫ =====
-// В этой версии библиотеки вторым аргументом идет payload, а третьим — цвет.
-
 func getMainKB() *object.MessagesKeyboard {
 	kb := object.NewMessagesKeyboard(false)
 	kb.AddRow().AddTextButton("📸 Загрузить фото", nil, "positive").AddTextButton("📸 Несколько фото", nil, "positive")
@@ -331,7 +363,6 @@ func getSupportKB() *object.MessagesKeyboard {
 	return kb
 }
 
-// Новая клавиатура для оценки — обычные текстовые кнопки
 func getRatingKB() *object.MessagesKeyboard {
 	kb := object.NewMessagesKeyboard(false)
 	kb.AddRow()
