@@ -415,7 +415,7 @@ try:
                     links = []
                     is_video, is_photo = False, False
                     
-                    # Перебираем ВСЕ вложения в сообщении
+                    # Перебираем ВСЕ вложения в сообщении (до 10 штук)
                     for attach in attachments:
                         if attach.get('type') == 'photo':
                             is_photo = True
@@ -454,12 +454,14 @@ try:
                     elif mode == 'multi':
                         if is_photo and links:
                             add_upload(user_id)
+                            # Вот тут формируется текст точь-в-точь как на скриншоте
                             final_text = "🌿 **Твои фотографии загружены!**\n\n"
-                            # Генерируем ссылку для КАЖДОГО фото в сообщении
+                            
                             for i, link in enumerate(links, 1):
                                 short_link = shorten_link(link)
                                 final_text += f"🔗 Фото {i}: {short_link}\n\n"
-                            final_text += "💾 **Как сохранить:**\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить»."
+                                
+                            final_text += "💾 *Скопируй ссылки и открой в браузере.*"
                             send_msg(peer_id, final_text, keyboard=get_main_kb())
                         else:
                             send_msg(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
