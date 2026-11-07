@@ -43,7 +43,7 @@ var (
 
 	stateMutex         sync.Mutex
 	waitingMode        = make(map[int]string)
-	waitingForSupport  = make(map[int]bool) 
+	waitingForSupport  = make(map[int]bool)
 	waitingManualReply = make(map[int]int)
 	waitingForRating   = make(map[int]bool)
 )
@@ -135,7 +135,6 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		return
 	}
 
-	// Админ отвечает на сообщение
 	if userID == AdminID && strings.Contains(text, "ответ") {
 		if msg.ReplyMessage != nil {
 			target := msg.ReplyMessage.FromID
@@ -149,7 +148,6 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		return
 	}
 
-	// Админ пишет ответ
 	if userID == AdminID {
 		stateMutex.Lock()
 		target, isWaiting := waitingManualReply[AdminID]
@@ -165,7 +163,6 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		}
 	}
 
-	// Игрок пишет вопрос в поддержку
 	stateMutex.Lock()
 	isSupport := waitingForSupport[userID]
 	stateMutex.Unlock()
@@ -180,14 +177,12 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		return
 	}
 
-	// Игрок ставит оценку
 	stateMutex.Lock()
 	isRating := waitingForRating[userID]
 	stateMutex.Unlock()
 	if isRating {
 		rating, err := strconv.Atoi(msg.Text)
 		if err == nil && rating >= 1 && rating <= 10 {
-            // ТУТ БЫЛА ОШИБКА, ДОБАВЛЕН nil
 			sendMsg(AdminID, fmt.Sprintf("⭐ **Новый отзыв!**\n👤 [id%d|Игрок]\n🌟 Оценка: %d/10", userID, rating), nil)
 			sendMsg(peerID, fmt.Sprintf("🤩 Спасибо за оценку %d/10! Репорт закрыт.", rating), getMainKB())
 			stateMutex.Lock()
@@ -199,7 +194,6 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		return
 	}
 
-	// Обработка фото
 	stateMutex.Lock()
 	mode, isWaitingMode := waitingMode[peerID]
 	stateMutex.Unlock()
@@ -208,7 +202,6 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		return
 	}
 
-	// Меню
 	if text == "начать" || text == "start" {
 		sendMsg(peerID, "Привет! Выбирай действие:", getMainKB())
 	} else if strings.Contains(text, "несколько фото") {
@@ -347,24 +340,26 @@ func sendMsg(peerID int, text string, kb interface{}) {
 	}
 }
 
+// ВОТ ЗДЕСЬ ИСПРАВЛЕНЫ КНОПКИ (вместо nil используется "{}")
+
 func getMainKB() *object.MessagesKeyboard {
 	kb := object.NewMessagesKeyboard(false)
-	kb.AddRow().AddTextButton("📸 Загрузить фото", nil, "positive").AddTextButton("📸 Несколько фото", nil, "positive")
-	kb.AddRow().AddTextButton("🎬 Загрузка видео", nil, "primary").AddTextButton("📊 Статистика", nil, "secondary")
-	kb.AddRow().AddTextButton("📖 Помощь", nil, "negative")
+	kb.AddRow().AddTextButton("📸 Загрузить фото", "{}", "positive").AddTextButton("📸 Несколько фото", "{}", "positive")
+	kb.AddRow().AddTextButton("🎬 Загрузка видео", "{}", "primary").AddTextButton("📊 Статистика", "{}", "secondary")
+	kb.AddRow().AddTextButton("📖 Помощь", "{}", "negative")
 	return kb
 }
 
 func getSupportKB() *object.MessagesKeyboard {
 	kb := object.NewMessagesKeyboard(false)
-	kb.AddRow().AddTextButton("📋 Выбор по шаблонам", nil, "primary").AddTextButton("✍️ Свой вопрос", nil, "positive")
+	kb.AddRow().AddTextButton("📋 Выбор по шаблонам", "{}", "primary").AddTextButton("✍️ Свой вопрос", "{}", "positive")
 	return kb
 }
 
 func getRatingKB() *object.MessagesKeyboard {
 	kb := object.NewMessagesKeyboard(false)
 	kb.AddRow()
-	kb.AddTextButton("⭐ Оценить работу", nil, "positive")
-	kb.AddTextButton("❌ Закрыть вопрос", nil, "negative")
+	kb.AddTextButton("⭐ Оценить работу", "{}", "positive")
+	kb.AddTextButton("❌ Закрыть вопрос", "{}", "negative")
 	return kb
 }
