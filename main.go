@@ -204,6 +204,7 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		return
 	}
 
+	// --- ОБРАБОТКА КНОПОК МЕНЮ ---
 	if text == "начать" || text == "start" {
 		sendMsg(peerID, "Привет! Выбирай действие:", getMainKB())
 	} else if strings.Contains(text, "несколько фото") {
@@ -218,6 +219,11 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		sendMsg(peerID, "📸 Отправь одно фото!", getMainKB())
 	} else if strings.Contains(text, "статистика") {
 		sendMsg(peerID, fmt.Sprintf("📊 Загружено: %d", uploads), getMainKB())
+	
+	// ВОТ ТУТ ТО, ЧЕГО НЕ ХВАТАЛО!
+	} else if strings.Contains(text, "помощь") {
+		helpText := "📖 **Помощь по боту**\n\n1. Жми «Загрузить фото».\n2. Отправь картинку.\n3. Получи прямую ссылку.\n\nПо всем вопросам пиши в поддержку 👇"
+		sendMsg(peerID, helpText, getHelpKB())
 	} else if strings.Contains(text, "связь с администрацией") {
 		sendMsg(peerID, "📩 Выберите способ:", getSupportKB())
 	} else if strings.Contains(text, "свой вопрос") {
@@ -225,6 +231,11 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		waitingForSupport[userID] = true
 		stateMutex.Unlock()
 		sendMsg(peerID, "✍️ Напиши свой вопрос:", getMainKB())
+	} else if strings.Contains(text, "выбор по шаблонам") {
+		// Заглушка для шаблонов (чтобы кнопка не игнорировалась)
+		sendMsg(peerID, "📩 Выберите тему обращения:\n(В разработке, нажмите 'Свой вопрос')", getSupportKB())
+	} else if strings.Contains(text, "назад") {
+		sendMsg(peerID, "Выбирай действие на кнопках внизу 👇", getMainKB())
 	} else if strings.Contains(text, "⭐ оценить работу") {
 		stateMutex.Lock()
 		waitingForRating[userID] = true
@@ -342,8 +353,7 @@ func sendMsg(peerID int, text string, kb interface{}) {
 	}
 }
 
-// ИСПОЛЬЗУЕМ make(map[string]interface{}) ВМЕСТО nil И "{}"
-
+// ===== КЛАВИАТУРЫ (добавлена HelpKB) =====
 func getMainKB() *object.MessagesKeyboard {
 	kb := object.NewMessagesKeyboard(false)
 	p := make(map[string]interface{})
@@ -353,10 +363,19 @@ func getMainKB() *object.MessagesKeyboard {
 	return kb
 }
 
+func getHelpKB() *object.MessagesKeyboard {
+	kb := object.NewMessagesKeyboard(false)
+	p := make(map[string]interface{})
+	kb.AddRow().AddTextButton("📩 Связь с администрацией", p, "primary")
+	kb.AddRow().AddTextButton("⬅️ Назад", p, "secondary")
+	return kb
+}
+
 func getSupportKB() *object.MessagesKeyboard {
 	kb := object.NewMessagesKeyboard(false)
 	p := make(map[string]interface{})
 	kb.AddRow().AddTextButton("📋 Выбор по шаблонам", p, "primary").AddTextButton("✍️ Свой вопрос", p, "positive")
+	kb.AddRow().AddTextButton("⬅️ Назад", p, "secondary")
 	return kb
 }
 
