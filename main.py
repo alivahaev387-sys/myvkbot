@@ -415,6 +415,7 @@ try:
                     links = []
                     is_video, is_photo = False, False
                     
+                    # Собираем ВСЕ ссылки из ВСЕХ прикрепленных файлов
                     for attach in attachments:
                         if attach.get('type') == 'photo':
                             is_photo = True
@@ -451,23 +452,14 @@ try:
                         
                     elif mode == 'multi':
                         if is_photo and links:
-                            # ОГРАНИЧЕНИЕ НА 5 ФОТО ЗА РАЗ
-                            if len(links) > 5:
-                                send_msg(peer_id, "⚠️ **Максимум 5 фото за один раз!** Обрабатываю первые 5.")
-                                links = links[:5]
-
                             add_upload(user_id)
-                            
-                            # Отправляем ссылки по одной
+                            # Формируем одно большое сообщение со всеми ссылками
+                            final_text = "🌿 **Твои фотографии загружены!**\n\n"
                             for i, link in enumerate(links, 1):
                                 short_link = shorten_link(link)
-                                msg_text = (f"🌿 **Фото {i} загружено!**\n\n"
-                                            f"🔗 Ссылка: {short_link}\n\n"
-                                            f"💾 *Зажми картинку по ссылке и выбери «Сохранить».*")
-                                send_msg(peer_id, msg_text) # Без клавиатуры, чтобы не спамить
-                            
-                            # В конце одно сообщение с инструкцией и кнопками
-                            send_msg(peer_id, "✅ **Все выбранные фото обработаны!**\n\nМожешь отправить еще или нажми любую кнопку.", keyboard=get_main_kb())
+                                final_text += f"🔗 Фото {i}: {short_link}\n\n"
+                            final_text += "💾 **Как сохранить:**\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить».\n\n*Можешь отправить еще фото или нажми любую кнопку.*"
+                            send_msg(peer_id, final_text, keyboard=get_main_kb())
                         else:
                             send_msg(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
                         # Режим multi НЕ удаляем, чтобы можно было отправить еще
@@ -592,7 +584,7 @@ try:
                 send_msg(peer_id, "🎬 **Отправь мне видео!**", keyboard=get_main_kb())
             elif "несколько" in text_lower:
                 waiting_mode[peer_id] = 'multi'
-                send_msg(peer_id, "📸 **Отправь мне несколько фото!**\n*(Можешь отправить до 5 штук за раз)*", keyboard=get_main_kb())
+                send_msg(peer_id, "📸 **Отправь мне несколько фото!**\n*(Выдели сразу несколько фото или отправляй их по одному)*", keyboard=get_main_kb())
             elif "загрузить фото" in text_lower or "создать ссылку" in text_lower:
                 waiting_mode[peer_id] = 'one'
                 send_msg(peer_id, "📸 **Отправь мне фотографию, и я сделаю из неё прямую ссылку!**", keyboard=get_main_kb())
