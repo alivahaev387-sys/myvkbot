@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -233,7 +234,7 @@ func handlePhotoUpload(peerID, userID int, msg object.MessagesMessage, mode stri
 		return
 	}
 
-	// ТУТ БЫЛА ОШИБКА, ТЕПЕРЬ ВСЕ ПРАВИЛЬНО ([]int)
+	// ИСПРАВЛЕНО: Передаем []int, как требует библиотека
 	fullMsg, err := vk.MessagesGetByID(params.NewMessagesGetByIDBuilder().MessageIDs([]int{msg.ID}).Params)
 	if err != nil || len(fullMsg.Items) == 0 {
 		log.Println("Ошибка getById:", err)
@@ -279,10 +280,14 @@ func handlePhotoUpload(peerID, userID int, msg object.MessagesMessage, mode stri
 }
 
 func handleEvent(_ context.Context, obj events.MessageEventObject) {
-	payload := obj.Payload
+	// ИСПРАВЛЕНО: Распаковываем сырые байты payload в читаемый словарь
+	var payload map[string]interface{}
+	payloadBytes, _ := json.Marshal(obj.Payload)
+	json.Unmarshal(payloadBytes, &payload)
+
 	userID := obj.UserID
 	peerID := obj.PeerID
-	eventID := obj.EventID // ВК присылает СТРОКУ
+	eventID := obj.EventID
 
 	cmd, _ := payload["cmd"].(string)
 
@@ -357,7 +362,8 @@ func sendMsg(peerID int, text string, kb interface{}) {
 	b := params.NewMessagesSendBuilder()
 	b.PeerID(peerID)
 	b.Message(text)
-	b.RandomID(rand.Int31())
+	// ИСПРАВЛЕНО: Приведение int32 к int
+	b.RandomID(int(rand.Int31()))
 	if kb != nil {
 		b.Keyboard(kb)
 	}
