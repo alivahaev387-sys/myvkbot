@@ -18,7 +18,7 @@ waiting_for_support = set()
 waiting_for_manual_report = set()
 waiting_for_manual_reply = {} 
 users_in_report = set() 
-waiting_for_rating = set() 
+waiting_for_rating = {}  # Изменено на словарь, чтобы запоминать ID репорта
 active_reports = {}
 
 # --- БАЗА ДАННЫХ ---
@@ -145,12 +145,13 @@ def get_templates_kb():
         ]
     }, ensure_ascii=False)
 
-def get_rating_kb(target_user_id):
+# ОБНОВЛЕНО: Теперь передаем ID репорта в кнопки, чтобы бот знал, какой именно репорт закрывать
+def get_rating_kb(target_user_id, report_id):
     return json.dumps({
         "inline": True,
         "buttons": [
-            [{"action": {"type": "callback", "label": "⭐ Оценить работу", "payload": json.dumps({"cmd": "rate_report", "target_id": target_user_id})}, "color": "positive"},
-             {"action": {"type": "callback", "label": "❌ Закрыть вопрос", "payload": json.dumps({"cmd": "close_report", "target_id": target_user_id})}, "color": "negative"}]
+            [{"action": {"type": "callback", "label": "⭐ Оценить работу", "payload": json.dumps({"cmd": "rate_report", "target_id": target_user_id, "report_id": report_id})}, "color": "positive"},
+             {"action": {"type": "callback", "label": "❌ Закрыть вопрос", "payload": json.dumps({"cmd": "close_report", "target_id": target_user_id, "report_id": report_id})}, "color": "negative"}]
         ]
     }, ensure_ascii=False)
 
@@ -307,21 +308,40 @@ try:
                     vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Бан отменен"}))
                     continue
 
+            # --- ОБРАБОТКА ОЦЕНКИ ИГРОКОМ ---
             if payload.get("cmd") == "rate_report":
                 if user_id in users_in_report:
-                    waiting_for_rating.add(user_id)
-                    send_msg(peer_id, "⭐ Пожалуйста, напишите оценку от 1 до 10 одним числом (например: 5).", keyboard=get_main_kb())
+                    report_id = payload.get("report_id")
+                    waiting_for_rating[user_id] = report_id  # Сохраняем ID репорта
+                    
+                    text_rate = (f"⭐ **Оцените работу администратора!**\n\n"
+                                 f"Пожалуйста, напишите оценку от 1 до 10 одним числом (например: 10).")
+                    send_msg(peer_id, text_rate, keyboard=get_main_kb())
                     vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Ожидаю оценку..."}))
                 else:
-                    vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Репорт уже закрыт!"}))
+                    vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Этот репорт уже закрыт!"}))
             
+            # --- ОБРАБОТКА ЗАКРЫТИЯ ИГРОКОМ ---
             elif payload.get("cmd") == "close_report":
                 if user_id in users_in_report:
+                    report_id = payload.get("report_id")
+                    
+                    # Очищаем данные
+                    if report_id in active_reports:
+                        del active_reports[report_id]
                     users_in_report.discard(user_id)
-                    send_msg(peer_id, "✅ Спасибо за обращение! Ваш вопрос закрыт.", keyboard=get_main_kb())
+                    if user_id in waiting_for_rating:
+                        del waiting_for_rating[user_id]
+                        
+                    close_text = (f"✅ **Ваш вопрос успешно закрыт!**\n\n"
+                                  f"Спасибо за обращение! Если что-то ещё понадобится, мы всегда на связи 👇")
+                    send_msg(peer_id, close_text, keyboard=get_main_kb())
+                    
+                    send_msg(ADMIN_ID, f"🔒 Игрок [id{user_id}|Игрок] самостоятельно закрыл репорт #{report_id}.")
+                    
                     vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Вопрос закрыт"}))
                 else:
-                    vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Репорт уже закрыт!"}))
+                    vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Этот репорт уже закрыт!"}))
             continue
 
         # --- ОБРАБОТКА СООБЩЕНИЙ ---
@@ -391,7 +411,7 @@ try:
                 if peer_id in waiting_mode: del waiting_mode[peer_id]
                 waiting_for_support.discard(user_id)
                 waiting_for_manual_report.discard(user_id)
-                waiting_for_rating.discard(user_id)
+                if user_id in waiting_for_rating: del waiting_for_rating[user_id]
                 
                 seconds_left = ban_until - current_time
                 if seconds_left < 60:
@@ -416,7 +436,6 @@ try:
             if peer_id in waiting_mode:
                 mode = waiting_mode[peer_id]
                 
-                # ИСПРАВЛЕНИЕ: передаем ID в виде строки (str), чтобы ВК отдал ВСЕ фото!
                 try:
                     full_msg = vk.messages.getById(message_ids=str(msg['id']))['items'][0]
                     attachments = full_msg.get('attachments', [])
@@ -430,7 +449,6 @@ try:
                     links = []
                     is_video, is_photo = False, False
                     
-                    # Собираем все фото и документы
                     for attach in attachments:
                         att_type = attach.get('type')
                         if att_type == 'photo':
@@ -449,7 +467,6 @@ try:
                             o_id = attach['video']['owner_id']
                             links.append(f"https://vk.com/video{o_id}_{v_id}")
                     
-                    # Отладка: выведет в консоль, сколько фото нашел бот
                     print(f"--- ВК прислал вложений: {len(attachments)}. Найдено ссылок: {len(links)} ---")
                     
                     if mode == 'video':
@@ -480,7 +497,6 @@ try:
                             add_upload(user_id)
                             final_text = "🌿 **Твои фотографии загружены!**\n\n"
                             
-                            # Выводим ВСЕ найденные ссылки
                             for i, link in enumerate(links, 1):
                                 short_link = shorten_link(link)
                                 final_text += f"🔗 Фото {i}: {short_link}\n\n"
@@ -510,6 +526,7 @@ try:
                 send_msg(peer_id, "Привет! Выбирай действие на кнопках внизу 👇", keyboard=get_main_kb())
                 continue
 
+            # ОТВЕТ АДМИНИСТРАТОРА ИГРОКУ
             if user_id == ADMIN_ID and ADMIN_ID in waiting_for_manual_reply:
                 reply_data = waiting_for_manual_reply[ADMIN_ID]
                 target_user_id = reply_data["target_user"]
@@ -520,41 +537,54 @@ try:
                     del waiting_for_manual_reply[ADMIN_ID]
                     continue
 
-                send_msg(target_user_id, f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n{text}", keyboard=get_rating_kb(target_user_id))
-                send_msg(ADMIN_ID, f"✅ Ответ доставлен [id{target_user_id}|Игроку]. Репорт #{report_id} закрыт.", keyboard=get_main_kb())
+                # Красивый текст для игрока с кнопками
+                player_reply = (f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n"
+                                f"💬 *{text}*\n\n"
+                                f"👇 *Пожалуйста, оцените работу или закройте вопрос:*")
+                                
+                send_msg(target_user_id, player_reply, keyboard=get_rating_kb(target_user_id, report_id))
                 
-                del active_reports[report_id]
-                users_in_report.discard(target_user_id)
+                # Сообщение тебе, что ответ улетел (репорт НЕ закрываем!)
+                send_msg(ADMIN_ID, f"✅ **Ответ доставлен игроку!**\n👤 Кому: [id{target_user_id}|Игрок]\n📝 Текст: {text}\n\n⏳ *Ожидаем, пока игрок закроет репорт или поставит оценку.*", keyboard=get_main_kb())
+                
                 del waiting_for_manual_reply[ADMIN_ID]
                 continue
 
+            # ОБРАБОТКА ВВОДА ОЦЕНКИ ОТ ИГРОКА
             if user_id in waiting_for_rating:
                 try:
                     rating = int(text)
                     if 1 <= rating <= 10:
+                        report_id = waiting_for_rating[user_id]
+                        
+                        # Закрываем репорт
+                        if report_id in active_reports:
+                            del active_reports[report_id]
+                        users_in_report.discard(user_id)
+                        del waiting_for_rating[user_id]
+                        
                         admin_msg = (f"⭐ **Новый отзыв!**\n\n"
                                      f"👤 Пользователь: [id{user_id}|Игрок]\n"
-                                     f"🌟 Оценка: {rating}/10\n\n"
-                                     f"Репорт успешно закрыт.")
+                                     f"🌟 Оценка: {rating}/10\n"
+                                     f"📄 По репорту: #{report_id}\n\n"
+                                     f"✅ Репорт успешно закрыт.")
                         send_msg(ADMIN_ID, admin_msg)
                         
                         if 1 <= rating <= 3:
                             user_msg = (f"😔 **Спасибо за отзыв (Оценка: {rating}/10).**\n\n"
-                                        f"Нам очень жаль, что мы не смогли решить вашу проблему идеально.\n\n🔒 *Репорт закрыт.*")
+                                        f"Нам очень жаль, что мы не смогли решить вашу проблему идеально.\n\n🔒 *Ваше обращение закрыто.*")
                         elif 4 <= rating <= 7:
                             user_msg = (f"🙂 **Спасибо за отзыв (Оценка: {rating}/10).**\n\n"
-                                        f"Мы рады, что смогли вам помочь!\n\n🔒 *Репорт закрыт.*")
+                                        f"Мы рады, что смогли вам помочь!\n\n🔒 *Ваше обращение закрыто.*")
                         else: 
                             user_msg = (f"🤩 **Огромное спасибо! (Оценка: {rating}/10)**\n\n"
-                                        f"Мы очень рады, что вам всё понравилось!\n\n🔒 *Репорт закрыт.*")
+                                        f"Мы очень рады, что вам всё понравилось!\n\n🔒 *Ваше обращение закрыто.*")
                         
                         send_msg(peer_id, user_msg, keyboard=get_main_kb())
-                        waiting_for_rating.remove(user_id)
-                        users_in_report.discard(user_id)
                     else:
-                        send_msg(peer_id, "❌ Оценка должна быть от 1 до 10.", keyboard=get_main_kb())
+                        send_msg(peer_id, "❌ **Ошибка:** Оценка должна быть числом от 1 до 10. Попробуйте еще раз.", keyboard=get_main_kb())
                 except ValueError:
-                    send_msg(peer_id, "❌ Пожалуйста, введи число.", keyboard=get_main_kb())
+                    send_msg(peer_id, "❌ **Ошибка:** Пожалуйста, введите именно число (например: 5).", keyboard=get_main_kb())
                 continue
 
             if user_id in waiting_for_manual_report:
@@ -566,11 +596,11 @@ try:
                     report_id = random.randint(1000, 9999)
                     active_reports[report_id] = user_id 
                     
-                    support_text = f"🆘 **Репорт #{report_id}**\n👤 От: [id{user_id}|Игрок]\n\n{text}"
+                    support_text = f"🆘 **Репорт #{report_id}**\n👤 От: [id{user_id}|Игрок]\n\n💬 {text}"
                     send_msg(ADMIN_ID, support_text, keyboard=get_admin_report_kb(report_id, user_id))
                     
                     users_in_report.add(user_id) 
-                    send_msg(user_id, "✅ Твой репорт отправлен! Ожидай ответа.", keyboard=get_main_kb())
+                    send_msg(user_id, "✅ **Ваш репорт отправлен!**\n\nПожалуйста, ожидайте ответа администратора.", keyboard=get_main_kb())
                     waiting_for_manual_report.remove(user_id)
                     continue
 
@@ -583,11 +613,11 @@ try:
                 report_id = random.randint(1000, 9999)
                 active_reports[report_id] = user_id
                 
-                support_text = f"🆘 **Репорт #{report_id}**\n👤 От: [id{user_id}|Игрок]\n\n{text}"
+                support_text = f"🆘 **Репорт #{report_id}**\n👤 От: [id{user_id}|Игрок]\n\n💬 {text}"
                 send_msg(ADMIN_ID, support_text, keyboard=get_admin_report_kb(report_id, user_id))
                 
                 users_in_report.add(user_id) 
-                send_msg(user_id, "✅ Репорт отправлен! Ожидай.", keyboard=get_main_kb())
+                send_msg(user_id, "✅ **Ваш репорт отправлен!**\n\nПожалуйста, ожидайте ответа администратора.", keyboard=get_main_kb())
                 waiting_for_support.remove(user_id)
                 continue
 
