@@ -146,7 +146,7 @@ def get_templates_kb():
         ]
     }, ensure_ascii=False)
 
-# 4 КНОПКИ ДЛЯ ПЛОХОЙ ОЦЕНКИ (1-5)
+# 4 КНОПКИ ДЛЯ ПЛОХОЙ ОЦЕНКИ (1-4) + Закрыть
 def get_neg_feedback_kb(report_id):
     return json.dumps({
         "inline": True,
@@ -154,11 +154,12 @@ def get_neg_feedback_kb(report_id):
             [{"action": {"type": "callback", "label": "⏳ Давно без ответа", "payload": json.dumps({"cmd": "feedback", "type": "neg", "reason": "Давно без ответа", "report_id": report_id})}, "color": "secondary"},
              {"action": {"type": "callback", "label": "🚫 Не помог", "payload": json.dumps({"cmd": "feedback", "type": "neg", "reason": "Не помог", "report_id": report_id})}, "color": "secondary"}],
             [{"action": {"type": "callback", "label": "❓ Не понял ответ", "payload": json.dumps({"cmd": "feedback", "type": "neg", "reason": "Не понял ответ", "report_id": report_id})}, "color": "secondary"},
-             {"action": {"type": "callback", "label": "😡 Грубость", "payload": json.dumps({"cmd": "feedback", "type": "neg", "reason": "Грубость", "report_id": report_id})}, "color": "negative"}]
+             {"action": {"type": "callback", "label": "😡 Грубость", "payload": json.dumps({"cmd": "feedback", "type": "neg", "reason": "Грубость", "report_id": report_id})}, "color": "negative"}],
+            [{"action": {"type": "callback", "label": "❌ Закрыть репорт", "payload": json.dumps({"cmd": "close_feedback_report", "report_id": report_id})}, "color": "negative"}]
         ]
     }, ensure_ascii=False)
 
-# 6 КНОПОК ДЛЯ ХОРОШЕЙ ОЦЕНКИ (6-10)
+# 6 КНОПОК ДЛЯ ХОРОШЕЙ ОЦЕНКИ (5-10) + Закрыть
 def get_pos_feedback_kb(report_id):
     return json.dumps({
         "inline": True,
@@ -168,7 +169,8 @@ def get_pos_feedback_kb(report_id):
             [{"action": {"type": "callback", "label": "🛠 Решили проблему", "payload": json.dumps({"cmd": "feedback", "type": "pos", "reason": "Решили проблему", "report_id": report_id})}, "color": "primary"},
              {"action": {"type": "callback", "label": "🤝 Вежливый админ", "payload": json.dumps({"cmd": "feedback", "type": "pos", "reason": "Вежливый админ", "report_id": report_id})}, "color": "primary"}],
             [{"action": {"type": "callback", "label": "🔗 Удобный бот", "payload": json.dumps({"cmd": "feedback", "type": "pos", "reason": "Удобный бот", "report_id": report_id})}, "color": "secondary"},
-             {"action": {"type": "callback", "label": "🔥 Всё супер!", "payload": json.dumps({"cmd": "feedback", "type": "pos", "reason": "Всё супер!", "report_id": report_id})}, "color": "positive"}]
+             {"action": {"type": "callback", "label": "🔥 Всё супер!", "payload": json.dumps({"cmd": "feedback", "type": "pos", "reason": "Всё супер!", "report_id": report_id})}, "color": "positive"}],
+            [{"action": {"type": "callback", "label": "❌ Закрыть репорт", "payload": json.dumps({"cmd": "close_feedback_report", "report_id": report_id})}, "color": "negative"}]
         ]
     }, ensure_ascii=False)
 
@@ -256,9 +258,9 @@ try:
             if payload.get("cmd") == "feedback":
                 report_id = payload.get("report_id")
                 
-                # Если игрока нет в ожидании (уже нажал или репорт закрыт)
+                # ЗАЩИТА: Если игрока нет в ожидании (уже нажал или репорт закрыт)
                 if user_id not in waiting_for_feedback or waiting_for_feedback[user_id] != report_id:
-                    vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "❌ Вы уже оставили отзыв по этому вопросу!"}))
+                    vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "❌ Вы уже оставили отзыв!"}))
                     continue
 
                 f_type = payload.get("type")
@@ -268,7 +270,8 @@ try:
                 if report_id in active_reports:
                     del active_reports[report_id]
                 users_in_report.discard(user_id)
-                del waiting_for_feedback[user_id] # Убираем из ожидания (защита от второго клика)
+                if user_id in waiting_for_feedback:
+                    del waiting_for_feedback[user_id]
                 
                 emoji = "⚠️" if f_type == "neg" else "✨"
                 f_type_text = "Недоволен" if f_type == "neg" else "Доволен"
@@ -283,6 +286,26 @@ try:
                 send_msg(peer_id, f"🙏 **Спасибо за ваш ответ!**\n\nМы зафиксировали: *{reason}*.\nРепорт закрыт. Выбирай действие на кнопках 👇", keyboard=get_main_kb())
                 
                 vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Спасибо! Репорт закрыт."}))
+                continue
+
+            # НОВОЕ: ОБРАБОТКА КНОПКИ "ЗАКРЫТЬ РЕПОРТ" В ФИДБЕКЕ
+            if payload.get("cmd") == "close_feedback_report":
+                report_id = payload.get("report_id")
+                
+                if user_id not in waiting_for_feedback or waiting_for_feedback[user_id] != report_id:
+                    vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "❌ Репорт уже закрыт!"}))
+                    continue
+
+                if report_id in active_reports:
+                    del active_reports[report_id]
+                users_in_report.discard(user_id)
+                if user_id in waiting_for_feedback:
+                    del waiting_for_feedback[user_id]
+                
+                send_msg(peer_id, "✅ **Репорт успешно закрыт.** Спасибо за обращение!", keyboard=get_main_kb())
+                send_msg(ADMIN_ID, f"🔒 Игрок [id{user_id}|Игрок] закрыл репорт #{report_id} без указания причины.")
+                
+                vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Репорт закрыт"}))
                 continue
 
             if user_id == ADMIN_ID:
@@ -623,8 +646,8 @@ try:
                                      f"📄 По репорту: #{report_id}\n\n")
                         send_msg(ADMIN_ID, admin_msg)
                         
-                        # ===== ЛОГИКА ДЛЯ ПЛОХОЙ ОЦЕНКИ (1-5) =====
-                        if 1 <= rating <= 5:
+                        # ===== ЛОГИКА ДЛЯ ПЛОХОЙ ОЦЕНКИ (1-4) =====
+                        if 1 <= rating <= 4:
                             waiting_for_feedback[user_id] = report_id
                             
                             feedback_text = (f"😔 **Спасибо за ваш отзыв (Оценка: {rating}/10).**\n\n"
@@ -632,11 +655,11 @@ try:
                                              f"**Подскажите пожалуйста, что именно вам не понравилось?** (Выберите на кнопках ниже):")
                             send_msg(peer_id, feedback_text, keyboard=get_neg_feedback_kb(report_id))
                             
-                        # ===== ЛОГИКА ДЛЯ ХОРОШЕЙ ОЦЕНКИ (6-10) =====
+                        # ===== ЛОГИКА ДЛЯ ХОРОШЕЙ ОЦЕНКИ (5-10) =====
                         else:
                             waiting_for_feedback[user_id] = report_id
                             
-                            feedback_text = (f"🤩 **Спасибо за высокую оценку! (Оценка: {rating}/10).**\n\n"
+                            feedback_text = (f"🤩 **Спасибо за вашу оценку! (Оценка: {rating}/10).**\n\n"
                                              f"Мы безумно рады, что вам понравилось!\n"
                                              f"**Подскажите пожалуйста, что вам понравилось больше всего?** (Выберите на кнопках ниже):")
                             send_msg(peer_id, feedback_text, keyboard=get_pos_feedback_kb(report_id))
