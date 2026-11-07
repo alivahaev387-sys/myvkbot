@@ -113,7 +113,9 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 
 	if text == "/ping" || text == "пинг" || text == "!пинг" {
 		pingMs := time.Now().UnixMilli() - int64(msg.Date)*1000
-		if pingMs < 0 { pingMs = 0 }
+		if pingMs < 0 {
+			pingMs = 0
+		}
 		sendMsg(peerID, fmt.Sprintf("🏓 Понг!\n\n⚡ Скорость: %d мс\n📊 Статус: 🟢 Отлично", pingMs), nil)
 		return
 	}
@@ -340,26 +342,29 @@ func sendMsg(peerID int, text string, kb interface{}) {
 	}
 }
 
-// ВОТ ЗДЕСЬ ИСПРАВЛЕНЫ КНОПКИ (вместо nil используется "{}")
+// ИСПОЛЬЗУЕМ make(map[string]interface{}) ВМЕСТО nil И "{}"
 
 func getMainKB() *object.MessagesKeyboard {
 	kb := object.NewMessagesKeyboard(false)
-	kb.AddRow().AddTextButton("📸 Загрузить фото", "{}", "positive").AddTextButton("📸 Несколько фото", "{}", "positive")
-	kb.AddRow().AddTextButton("🎬 Загрузка видео", "{}", "primary").AddTextButton("📊 Статистика", "{}", "secondary")
-	kb.AddRow().AddTextButton("📖 Помощь", "{}", "negative")
+	p := make(map[string]interface{})
+	kb.AddRow().AddTextButton("📸 Загрузить фото", p, "positive").AddTextButton("📸 Несколько фото", p, "positive")
+	kb.AddRow().AddTextButton("🎬 Загрузка видео", p, "primary").AddTextButton("📊 Статистика", p, "secondary")
+	kb.AddRow().AddTextButton("📖 Помощь", p, "negative")
 	return kb
 }
 
 func getSupportKB() *object.MessagesKeyboard {
 	kb := object.NewMessagesKeyboard(false)
-	kb.AddRow().AddTextButton("📋 Выбор по шаблонам", "{}", "primary").AddTextButton("✍️ Свой вопрос", "{}", "positive")
+	p := make(map[string]interface{})
+	kb.AddRow().AddTextButton("📋 Выбор по шаблонам", p, "primary").AddTextButton("✍️ Свой вопрос", p, "positive")
 	return kb
 }
 
 func getRatingKB() *object.MessagesKeyboard {
 	kb := object.NewMessagesKeyboard(false)
+	p := make(map[string]interface{})
 	kb.AddRow()
-	kb.AddTextButton("⭐ Оценить работу", "{}", "positive")
-	kb.AddTextButton("❌ Закрыть вопрос", "{}", "negative")
+	kb.AddTextButton("⭐ Оценить работу", p, "positive")
+	kb.AddTextButton("❌ Закрыть вопрос", p, "negative")
 	return kb
 }
