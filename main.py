@@ -410,17 +410,19 @@ try:
                 mode = waiting_mode[peer_id]
                 
                 if not attachments:
-                    # Если ждали фото, а написали текст - сбрасываем режим и идем дальше
+                    # Если ждали фото, а написали текст - сбрасываем режим
                     del waiting_mode[peer_id]
                 else:
                     links = []
                     is_video, is_photo = False, False
                     
+                    # Перебираем ВСЕ вложения в сообщении
                     for attach in attachments:
                         if attach.get('type') == 'photo':
                             is_photo = True
                             sizes = attach['photo'].get('sizes', [])
-                            if sizes: links.append(sizes[-1]['url'])
+                            if sizes: 
+                                links.append(sizes[-1]['url'])
                         elif attach.get('type') == 'video':
                             is_video = True
                             v_id = attach['video']['id']
@@ -454,6 +456,7 @@ try:
                         if is_photo and links:
                             add_upload(user_id)
                             final_text = "🌿 **Фото загружено!**\n\n"
+                            # Генерируем ссылку для КАЖДОГО фото в сообщении
                             for i, link in enumerate(links, 1):
                                 short_link = shorten_link(link)
                                 final_text += f"🔗 Фото {i}: {short_link}\n\n"
@@ -583,7 +586,7 @@ try:
                 send_msg(peer_id, "🎬 **Отправь мне видео!**", keyboard=get_main_kb())
             elif "несколько" in text_lower:
                 waiting_mode[peer_id] = 'multi'
-                send_msg(peer_id, "📸 **Отправь мне несколько фото!**\n*(Можешь отправлять их по одному)*", keyboard=get_main_kb())
+                send_msg(peer_id, "📸 **Отправь мне несколько фото!**\n*(Выдели сразу 3 фото или отправляй их по одному)*", keyboard=get_main_kb())
             elif "загрузить фото" in text_lower or "создать ссылку" in text_lower:
                 waiting_mode[peer_id] = 'one'
                 send_msg(peer_id, "📸 **Отправь мне фотографию, и я сделаю из неё прямую ссылку!**", keyboard=get_main_kb())
