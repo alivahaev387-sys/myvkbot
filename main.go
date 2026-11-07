@@ -58,6 +58,7 @@ func main() {
 	}
 
 	lp.MessageNew(handleMessage)
+	lp.MessageEvent(handleEvent) // ВОЗВРАЩАЕМ ОБРАБОТКУ КНОПОК!
 
 	go autoUnbanChecker()
 
@@ -105,6 +106,7 @@ func addUpload(userID int) {
 	updateUser(userID, w, b, up+1)
 }
 
+// ===== ОБРАБОТКА СООБЩЕНИЙ =====
 func handleMessage(_ context.Context, obj events.MessageNewObject) {
 	msg := obj.Message
 	peerID := msg.PeerID
@@ -113,9 +115,7 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 
 	if text == "/ping" || text == "пинг" || text == "!пинг" {
 		pingMs := time.Now().UnixMilli() - int64(msg.Date)*1000
-		if pingMs < 0 {
-			pingMs = 0
-		}
+		if pingMs < 0 { pingMs = 0 }
 		sendMsg(peerID, fmt.Sprintf("🏓 Понг!\n\n⚡ Скорость: %d мс\n📊 Статус: 🟢 Отлично", pingMs), nil)
 		return
 	}
@@ -137,26 +137,14 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		return
 	}
 
-	if userID == AdminID && strings.Contains(text, "ответ") {
-		if msg.ReplyMessage != nil {
-			target := msg.ReplyMessage.FromID
-			stateMutex.Lock()
-			waitingManualReply[AdminID] = target
-			stateMutex.Unlock()
-			sendMsg(AdminID, "✍️ Напиши текст ответа для игрока:", getMainKB())
-		} else {
-			sendMsg(AdminID, "❌ Ответь на сообщение игрока командой 'ответ'.", getMainKB())
-		}
-		return
-	}
-
+	// Если Админ пишет ответ на репорт
 	if userID == AdminID {
 		stateMutex.Lock()
 		target, isWaiting := waitingManualReply[AdminID]
 		stateMutex.Unlock()
 		if isWaiting {
-			playerReply := fmt.Sprintf("📩 **Вам ответил администратор** [id%d|Владелец]:\n\n💬 *%s*\n\n👇 *Выберите действие на кнопках внизу:*", AdminID, msg.Text)
-			sendMsg(target, playerReply, getRatingKB())
+			playerReply := fmt.Sprintf("📩 **Вам ответил администратор** [id%d|Владелец]:\n\n💬 *%s*\n\n👇 *Пожалуйста, оцените работу или закройте вопрос:*", AdminID, msg.Text)
+			sendMsg(target, playerReply, getRatingKB(target))
 			sendMsg(AdminID, "✅ Ответ доставлен.", getMainKB())
 			stateMutex.Lock()
 			delete(waitingManualReply, AdminID)
@@ -165,6 +153,7 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		}
 	}
 
+	// Если игрок в режиме ожидания поддержки (написал вопрос или нажал шаблон)
 	stateMutex.Lock()
 	isSupport := waitingForSupport[userID]
 	stateMutex.Unlock()
@@ -173,12 +162,14 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		delete(waitingForSupport, userID)
 		stateMutex.Unlock()
 
-		reportMsg := fmt.Sprintf("🆘 **Новый репорт от** [id%d|Игрока]:\n\n💬 %s", userID, msg.Text)
-		sendMsg(AdminID, reportMsg, nil)
+		// Отправляем тебе репорт с КНОПКАМИ
+		reportMsg := fmt.Sprintf("🆘 **Новый репорт**\n👤 От: [id%d|Игрока]\n\n💬 %s", userID, msg.Text)
+		sendMsg(AdminID, reportMsg, getAdminReportKB(userID))
 		sendMsg(peerID, "✅ Ваш репорт отправлен! Ожидайте ответа.", getMainKB())
 		return
 	}
 
+	// Если игрок ставит оценку
 	stateMutex.Lock()
 	isRating := waitingForRating[userID]
 	stateMutex.Unlock()
@@ -191,11 +182,12 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 			delete(waitingForRating, userID)
 			stateMutex.Unlock()
 		} else {
-			sendMsg(peerID, "❌ Введи число от 1 до 10.", getRatingKB())
+			sendMsg(peerID, "❌ Введи число от 1 до 10.", getRatingKB(userID))
 		}
 		return
 	}
 
+	// Обработка фото
 	stateMutex.Lock()
 	mode, isWaitingMode := waitingMode[peerID]
 	stateMutex.Unlock()
@@ -204,7 +196,7 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		return
 	}
 
-	// --- МЕНЮ (ПОЛНОСТЬЮ КАК В PYTHON) ---
+	// --- МЕНЮ ---
 	if text == "начать" || text == "start" {
 		sendMsg(peerID, "Привет! Выбирай действие:", getMainKB())
 	} else if strings.Contains(text, "несколько фото") {
@@ -226,6 +218,9 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		sendMsg(peerID, "📩 Выберите способ:", getChoiceKB())
 	} else if strings.Contains(text, "выбор по шаблонам") {
 		sendMsg(peerID, "📩 Выберите тему обращения:", getTemplatesKB())
+		stateMutex.Lock()
+		waitingForSupport[userID] = true // Включаем режим, чтобы следующее сообщение улетело в репорт
+		stateMutex.Unlock()
 	} else if strings.Contains(text, "свой вопрос") {
 		stateMutex.Lock()
 		waitingForSupport[userID] = true
@@ -233,15 +228,48 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		sendMsg(peerID, "✍️ Напиши свой вопрос:", getMainKB())
 	} else if strings.Contains(text, "назад") {
 		sendMsg(peerID, "Выбирай действие на кнопках внизу 👇", getMainKB())
-	} else if strings.Contains(text, "⭐ оценить работу") {
+	} else {
+		sendMsg(peerID, "Выбери действие 👇", getMainKB())
+	}
+}
+
+// ===== ОБРАБОТКА ИНЛАЙН-КНОПОК (ВОЗВРАЩЕНО!) =====
+func handleEvent(_ context.Context, obj events.MessageEventObject) {
+	var payload map[string]interface{}
+	payloadBytes, _ := json.Marshal(obj.Payload)
+	json.Unmarshal(payloadBytes, &payload)
+
+	userID := obj.UserID
+	peerID := obj.PeerID
+	eventID := obj.EventID
+	cmd, _ := payload["cmd"].(string)
+
+	if cmd == "rate_report" {
 		stateMutex.Lock()
 		waitingForRating[userID] = true
 		stateMutex.Unlock()
-		sendMsg(peerID, "⭐ Напиши оценку от 1 до 10:", getRatingKB())
-	} else if strings.Contains(text, "❌ закрыть вопрос") {
+		sendMsg(peerID, "⭐ Напиши оценку от 1 до 10:", nil)
+		sendEventAnswer(eventID, userID, peerID, "Ожидаю оценку...")
+	} else if cmd == "close_report" {
 		sendMsg(peerID, "✅ Ваш вопрос закрыт. Спасибо!", getMainKB())
-	} else {
-		sendMsg(peerID, "Выбери действие 👇", getMainKB())
+		sendEventAnswer(eventID, userID, peerID, "Вопрос закрыт")
+	}
+
+	if userID == AdminID {
+		if targetIDFloat, ok := payload["target_id"].(float64); ok {
+			targetID := int(targetIDFloat)
+			if cmd == "admin_reply" {
+				stateMutex.Lock()
+				waitingManualReply[AdminID] = targetID
+				stateMutex.Unlock()
+				sendMsg(AdminID, "✍️ Напиши текст ответа для игрока:", nil)
+				sendEventAnswer(eventID, userID, peerID, "Пиши ответ...")
+			} else if cmd == "admin_spam" {
+				sendMsg(targetID, "🚫 Ваш репорт отклонен (Спам).")
+				sendMsg(AdminID, "🚫 Игроку отклонен репорт.", getMainKB())
+				sendEventAnswer(eventID, userID, peerID, "Спам обработан")
+			}
+		}
 	}
 }
 
@@ -350,6 +378,15 @@ func sendMsg(peerID int, text string, kb interface{}) {
 	}
 }
 
+func sendEventAnswer(eventID string, userID, peerID int, text string) {
+	b := params.NewMessagesSendMessageEventAnswerBuilder()
+	b.EventID(eventID)
+	b.UserID(userID)
+	b.PeerID(peerID)
+	b.EventData(fmt.Sprintf(`{"type":"show_snackbar","text":"%s"}`, text))
+	vk.MessagesSendMessageEventAnswer(b.Params)
+}
+
 // ===== КЛАВИАТУРЫ =====
 func getMainKB() *object.MessagesKeyboard {
 	kb := object.NewMessagesKeyboard(false)
@@ -385,11 +422,24 @@ func getTemplatesKB() *object.MessagesKeyboard {
 	return kb
 }
 
-func getRatingKB() *object.MessagesKeyboard {
-	kb := object.NewMessagesKeyboard(false)
-	p := make(map[string]interface{})
+// ИНЛАЙН-КНОПКИ ДЛЯ ТЕБЯ (АДМИНА)
+func getAdminReportKB(targetUserID int) *object.MessagesKeyboard {
+	kb := object.NewMessagesKeyboard(true) // true = инлайн кнопки
 	kb.AddRow()
-	kb.AddTextButton("⭐ Оценить работу", p, "positive")
-	kb.AddTextButton("❌ Закрыть вопрос", p, "negative")
+	payloadReply := map[string]interface{}{"cmd": "admin_reply", "target_id": targetUserID}
+	payloadSpam := map[string]interface{}{"cmd": "admin_spam", "target_id": targetUserID}
+	kb.AddCallbackButton("✍️ Ответить", payloadReply, "positive")
+	kb.AddCallbackButton("🚫 Спам", payloadSpam, "negative")
+	return kb
+}
+
+// ИНЛАЙН-КНОПКИ ДЛЯ ИГРОКА
+func getRatingKB(targetUserID int) *object.MessagesKeyboard {
+	kb := object.NewMessagesKeyboard(true) // true = инлайн кнопки
+	kb.AddRow()
+	payloadRate := map[string]interface{}{"cmd": "rate_report", "target_id": targetUserID}
+	payloadClose := map[string]interface{}{"cmd": "close_report", "target_id": targetUserID}
+	kb.AddCallbackButton("⭐ Оценить работу", payloadRate, "positive")
+	kb.AddCallbackButton("❌ Закрыть вопрос", payloadClose, "negative")
 	return kb
 }
