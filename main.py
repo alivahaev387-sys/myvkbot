@@ -67,7 +67,7 @@ def add_warn(user_id):
 
 init_db()
 
-# --- УЛУЧШЕННОЕ СОКРАЩЕНИЕ ССЫЛОК (VK.CC + CLICK.RU) ---
+# --- УЛУЧШЕННОЕ СОКРАЩЕНИЕ ССЫЛОК ---
 def shorten_link(url):
     # 1. Пытаемся сократить через ВК
     try:
@@ -75,9 +75,9 @@ def shorten_link(url):
         if 'short_url' in res:
             return res['short_url'].replace('https://', '').replace('http://', '')
     except Exception:
-        pass # Если ВК не смог (он не сокращает картинки), идем дальше
+        pass # Если ВК выдал лимит, идем дальше
     
-    # 2. Если ВК не смог, сокращаем через CLICK.RU (как на твоем скриншоте)
+    # 2. Если ВК не смог, сокращаем через CLICK.RU
     try:
         res = requests.get(f"https://clck.ru/--?url={url}", timeout=5)
         if res.status_code == 200:
@@ -85,7 +85,6 @@ def shorten_link(url):
     except Exception:
         pass
         
-    # 3. Если вообще ничего не вышло, возвращаем оригинал
     return url.replace('https://', '').replace('http://', '')
 
 # --- ФУНКЦИЯ ОТПРАВКИ ---
@@ -426,13 +425,17 @@ try:
                     links = []
                     is_video, is_photo = False, False
                     
-                    # Перебираем ВСЕ вложения в сообщении (до 10 штук)
+                    # ИСПРАВЛЕНИЕ: Теперь бот ищет фото И в обычных фото, И в документах!
                     for attach in attachments:
                         if attach.get('type') == 'photo':
                             is_photo = True
                             sizes = attach['photo'].get('sizes', [])
                             if sizes: 
                                 links.append(sizes[-1]['url'])
+                        elif attach.get('type') == 'doc':
+                            if attach['doc'].get('ext') in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
+                                is_photo = True
+                                links.append(attach['doc']['url'])
                         elif attach.get('type') == 'video':
                             is_video = True
                             v_id = attach['video']['id']
@@ -467,17 +470,16 @@ try:
                             add_upload(user_id)
                             final_text = "🌿 **Твои фотографии загружены!**\n\n"
                             
-                            # Перебираем все ссылки (до 10 штук)
+                            # Перебираем ВСЕ найденные ссылки (сколько бы их ни было)
                             for i, link in enumerate(links, 1):
                                 short_link = shorten_link(link)
                                 final_text += f"🔗 Фото {i}: {short_link}\n\n"
-                                time.sleep(0.3) # Пауза, чтобы ВК не блокировал запросы
+                                time.sleep(1.2) # Пауза 1.2 сек, чтобы ВК не выдал ошибку за частые запросы
                                 
                             final_text += "💾 *Скопируй ссылки и открой в браузере.*"
                             send_msg(peer_id, final_text, keyboard=get_main_kb())
                         else:
                             send_msg(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
-                        # Режим multi НЕ удаляем, чтобы можно было отправить еще
                     
                     continue
 
@@ -599,7 +601,7 @@ try:
                 send_msg(peer_id, "🎬 **Отправь мне видео!**", keyboard=get_main_kb())
             elif "несколько" in text_lower:
                 waiting_mode[peer_id] = 'multi'
-                send_msg(peer_id, "📸 **Отправь мне несколько фото!**\n\n⚠️ *Важно: прикрепи все фото к **одному сообщению** (до 10 штук), чтобы я выдал все ссылки сразу.*", keyboard=get_main_kb())
+                send_msg(peer_id, "📸 **Отправь мне несколько фото!**\n\n⚠️ *Важно: прикрепи все фото к **одному сообщению**.*", keyboard=get_main_kb())
             elif "загрузить фото" in text_lower or "создать ссылку" in text_lower:
                 waiting_mode[peer_id] = 'one'
                 send_msg(peer_id, "📸 **Отправь мне фотографию, и я сделаю из неё прямую ссылку!**", keyboard=get_main_kb())
