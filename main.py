@@ -69,15 +69,13 @@ init_db()
 
 # --- УЛУЧШЕННОЕ СОКРАЩЕНИЕ ССЫЛОК ---
 def shorten_link(url):
-    # 1. Пытаемся сократить через ВК
     try:
         res = vk.utils.getShortLink(url=url)
         if 'short_url' in res:
             return res['short_url'].replace('https://', '').replace('http://', '')
     except Exception:
-        pass # Если ВК выдал лимит, идем дальше
+        pass 
     
-    # 2. Если ВК не смог, сокращаем через CLICK.RU
     try:
         res = requests.get(f"https://clck.ru/--?url={url}", timeout=5)
         if res.status_code == 200:
@@ -416,8 +414,15 @@ try:
 
             # --- ОБРАБОТКА ФОТО/ВИДЕО ---
             if peer_id in waiting_mode:
-                attachments = msg.get('attachments', [])
                 mode = waiting_mode[peer_id]
+                
+                # ВАЖНО: Запрашиваем сообщение заново через API, чтобы ВК не "резал" альбом
+                try:
+                    full_msg = vk.messages.getById(message_ids=msg['id'])['items'][0]
+                    attachments = full_msg.get('attachments', [])
+                except Exception as e:
+                    print("Ошибка получения полного сообщения:", e)
+                    attachments = msg.get('attachments', [])
                 
                 if not attachments:
                     del waiting_mode[peer_id]
@@ -425,22 +430,27 @@ try:
                     links = []
                     is_video, is_photo = False, False
                     
-                    # ИСПРАВЛЕНИЕ: Теперь бот ищет фото И в обычных фото, И в документах!
+                    # Собираем все фото и документы
                     for attach in attachments:
-                        if attach.get('type') == 'photo':
+                        att_type = attach.get('type')
+                        if att_type == 'photo':
                             is_photo = True
                             sizes = attach['photo'].get('sizes', [])
                             if sizes: 
                                 links.append(sizes[-1]['url'])
-                        elif attach.get('type') == 'doc':
-                            if attach['doc'].get('ext') in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
-                                is_photo = True
-                                links.append(attach['doc']['url'])
-                        elif attach.get('type') == 'video':
+                            elif 'url' in attach['photo']:
+                                links.append(attach['photo']['url'])
+                        elif att_type == 'doc':
+                            is_photo = True
+                            links.append(attach['doc']['url'])
+                        elif att_type == 'video':
                             is_video = True
                             v_id = attach['video']['id']
                             o_id = attach['video']['owner_id']
                             links.append(f"https://vk.com/video{o_id}_{v_id}")
+                    
+                    # Отладка в консоль
+                    print(f"--- ВК прислал вложений: {len(attachments)}. Найдено ссылок: {len(links)} ---")
                     
                     if mode == 'video':
                         if is_photo and not is_video:
@@ -470,11 +480,11 @@ try:
                             add_upload(user_id)
                             final_text = "🌿 **Твои фотографии загружены!**\n\n"
                             
-                            # Перебираем ВСЕ найденные ссылки (сколько бы их ни было)
+                            # Выводим ВСЕ найденные ссылки
                             for i, link in enumerate(links, 1):
                                 short_link = shorten_link(link)
                                 final_text += f"🔗 Фото {i}: {short_link}\n\n"
-                                time.sleep(1.2) # Пауза 1.2 сек, чтобы ВК не выдал ошибку за частые запросы
+                                time.sleep(1.2) 
                                 
                             final_text += "💾 *Скопируй ссылки и открой в браузере.*"
                             send_msg(peer_id, final_text, keyboard=get_main_kb())
