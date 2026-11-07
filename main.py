@@ -415,12 +415,13 @@ try:
                     links = []
                     is_video, is_photo = False, False
                     
-                    # Собираем ВСЕ ссылки из ВСЕХ прикрепленных файлов
+                    # Перебираем ВСЕ вложения в сообщении
                     for attach in attachments:
                         if attach.get('type') == 'photo':
                             is_photo = True
                             sizes = attach['photo'].get('sizes', [])
-                            if sizes: links.append(sizes[-1]['url'])
+                            if sizes: 
+                                links.append(sizes[-1]['url'])
                         elif attach.get('type') == 'video':
                             is_video = True
                             v_id = attach['video']['id']
@@ -453,12 +454,12 @@ try:
                     elif mode == 'multi':
                         if is_photo and links:
                             add_upload(user_id)
-                            # Формируем одно большое сообщение со всеми ссылками
                             final_text = "🌿 **Твои фотографии загружены!**\n\n"
+                            # Генерируем ссылку для КАЖДОГО фото в сообщении
                             for i, link in enumerate(links, 1):
                                 short_link = shorten_link(link)
                                 final_text += f"🔗 Фото {i}: {short_link}\n\n"
-                            final_text += "💾 **Как сохранить:**\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить».\n\n*Можешь отправить еще фото или нажми любую кнопку.*"
+                            final_text += "💾 **Как сохранить:**\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить»."
                             send_msg(peer_id, final_text, keyboard=get_main_kb())
                         else:
                             send_msg(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
@@ -584,7 +585,7 @@ try:
                 send_msg(peer_id, "🎬 **Отправь мне видео!**", keyboard=get_main_kb())
             elif "несколько" in text_lower:
                 waiting_mode[peer_id] = 'multi'
-                send_msg(peer_id, "📸 **Отправь мне несколько фото!**\n*(Выдели сразу несколько фото или отправляй их по одному)*", keyboard=get_main_kb())
+                send_msg(peer_id, "📸 **Отправь мне несколько фото!**", keyboard=get_main_kb())
             elif "загрузить фото" in text_lower or "создать ссылку" in text_lower:
                 waiting_mode[peer_id] = 'one'
                 send_msg(peer_id, "📸 **Отправь мне фотографию, и я сделаю из неё прямую ссылку!**", keyboard=get_main_kb())
