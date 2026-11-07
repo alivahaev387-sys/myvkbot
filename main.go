@@ -233,8 +233,8 @@ func handlePhotoUpload(peerID, userID int, msg object.MessagesMessage, mode stri
 		return
 	}
 
-	// ИСПРАВЛЕНО: Теперь передаем массив строк (strconv.Itoa)
-	fullMsg, err := vk.MessagesGetByID(params.NewMessagesGetByIDBuilder().MessageIDs([]string{strconv.Itoa(msg.ID)}).Params)
+	// ТУТ БЫЛА ОШИБКА, ТЕПЕРЬ ВСЕ ПРАВИЛЬНО ([]int)
+	fullMsg, err := vk.MessagesGetByID(params.NewMessagesGetByIDBuilder().MessageIDs([]int{msg.ID}).Params)
 	if err != nil || len(fullMsg.Items) == 0 {
 		log.Println("Ошибка getById:", err)
 		return
@@ -282,7 +282,7 @@ func handleEvent(_ context.Context, obj events.MessageEventObject) {
 	payload := obj.Payload
 	userID := obj.UserID
 	peerID := obj.PeerID
-	eventID := obj.EventID
+	eventID := obj.EventID // ВК присылает СТРОКУ
 
 	cmd, _ := payload["cmd"].(string)
 
