@@ -62,14 +62,12 @@ func main() {
 	}
 }
 
-// ===== БАЗА ДАННЫХ =====
 func initDB() {
 	var err error
 	db, err = sql.Open("sqlite", "super_bot.db")
 	if err != nil {
 		log.Fatal(err)
 	}
-	// Включаем режим WAL для лучшей работы при большой нагрузке
 	db.Exec("PRAGMA journal_mode=WAL;")
 	query := `CREATE TABLE IF NOT EXISTS users (
 		user_id INTEGER PRIMARY KEY,
@@ -103,14 +101,12 @@ func addWarn(userID int) int {
 	return w
 }
 
-// ===== ОБРАБОТКА СООБЩЕНИЙ =====
 func handleMessage(_ context.Context, obj events.MessageNewObject) {
 	msg := obj.Message
 	peerID := msg.PeerID
 	userID := msg.FromID
 	text := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(msg.Text, "@club242296265", "")))
 
-	// ПИНГ
 	if text == "/ping" || text == "пинг" || text == "!пинг" {
 		pingMs := time.Now().UnixMilli() - int64(msg.Date)*1000
 		if pingMs < 0 { pingMs = 0 }
@@ -118,12 +114,11 @@ func handleMessage(_ context.Context, obj events.MessageNewObject) {
 		return
 	}
 
-	// Только ЛС
 	if peerID != userID {
 		return
 	}
 
-	warns, banUntil, uploads := getUserData(userID)
+	_, banUntil, uploads := getUserData(userID)
 	now := int(time.Now().Unix())
 
 	if banUntil > 0 && banUntil <= now {
@@ -238,8 +233,8 @@ func handlePhotoUpload(peerID, userID int, msg object.MessagesMessage, mode stri
 		return
 	}
 
-	// Запрашиваем сообщение по ID, чтобы ВК отдал весь альбом
-	fullMsg, err := vk.MessagesGetByID(params.NewMessagesGetByIDBuilder().MessageIDs([]string{strconv.Itoa(msg.ID)}).Params)
+	// ИСПРАВЛЕНО: Теперь передаем массив int, а не string
+	fullMsg, err := vk.MessagesGetByID(params.NewMessagesGetByIDBuilder().MessageIDs([]int{msg.ID}).Params)
 	if err != nil || len(fullMsg.Items) == 0 {
 		log.Println("Ошибка getById:", err)
 		return
@@ -269,14 +264,10 @@ func handlePhotoUpload(peerID, userID int, msg object.MessagesMessage, mode stri
 	if mode == "one" || len(links) == 1 {
 		resText = fmt.Sprintf("🌿 **Твоя фотография загружена!**\n\n🔗 Ссылка: %s", shortenLink(links[0]))
 	} else {
-		// Выносим паузу в горутину, чтобы не блокировать бота
-		go func() {
-			time.Sleep(2 * time.Second)
-		}()
 		resText = "🌿 **Твои фотографии загружены!**\n\n"
 		for i, link := range links {
 			resText += fmt.Sprintf("🔗 Фото %d: %s\n\n", i+1, shortenLink(link))
-			time.Sleep(1 * time.Second) // Пауза для ВК
+			time.Sleep(1 * time.Second)
 		}
 		resText += "💾 *Скопируй ссылки в браузер.*"
 	}
@@ -287,12 +278,11 @@ func handlePhotoUpload(peerID, userID int, msg object.MessagesMessage, mode stri
 	stateMutex.Unlock()
 }
 
-// ===== ОБРАБОТКА ИНЛАЙН-КНОПОК (ИСПРАВЛЕНЫ ОШИБКИ С ТИПАМИ) =====
 func handleEvent(_ context.Context, obj events.MessageEventObject) {
 	payload := obj.Payload
 	userID := obj.UserID
 	peerID := obj.PeerID
-	eventID := obj.EventID // ВК присылает eventID СТРОКОЙ
+	eventID := obj.EventID
 
 	cmd, _ := payload["cmd"].(string)
 
@@ -312,7 +302,6 @@ func handleEvent(_ context.Context, obj events.MessageEventObject) {
 
 	if userID == AdminID {
 		if cmd == "admin_reply" {
-			// ВК присылает числа как float64, приводим к int
 			if targetIDFloat, ok := payload["target_id"].(float64); ok {
 				targetID := int(targetIDFloat)
 				stateMutex.Lock()
@@ -333,7 +322,6 @@ func handleEvent(_ context.Context, obj events.MessageEventObject) {
 	}
 }
 
-// ===== ФОНОВЫЕ ЗАДАЧИ =====
 func autoUnbanChecker() {
 	for {
 		time.Sleep(10 * time.Second)
@@ -379,7 +367,6 @@ func sendMsg(peerID int, text string, kb interface{}) {
 	}
 }
 
-// ИСПРАВЛЕНО: eventID теперь string
 func sendEventAnswer(eventID string, userID, peerID int, text string) {
 	b := params.NewMessagesSendMessageEventAnswerBuilder()
 	b.EventID(eventID)
