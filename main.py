@@ -1,7 +1,7 @@
 import vk_api
 from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
 import json, random, sqlite3, time, requests, re
-import threading # Для фонового снятия бана
+import threading
 
 # ===== ТОКЕН =====
 TOKEN = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMbjdYBmf-QH6dwf-ZL4dMYkKMEEiviqU5GPmM5kaG4Xt535Hb1ApvImzJkk_cq-Q7ZxOQYVPbnULj0Fg6U0yDNSPgLwANkGKX348kTlENY6s99NOBeUO-e486DAX-0XtbAa3tmQdMYjF2GLxluGvHrhFHhvr5YCuDXfYxTgw5cYo"
@@ -66,6 +66,16 @@ def add_warn(user_id):
     return new_warns
 
 init_db()
+
+# --- СОКРАЩЕНИЕ ССЫЛОК (ДЕЛАЕТ VK.CC) ---
+def shorten_link(url):
+    try:
+        res = vk.utils.getShortLink(url=url)
+        if 'short_url' in res:
+            return res['short_url'].replace('https://', '').replace('http://', '')
+    except Exception as e: 
+        print(f"Ошибка сокращения ссылки: {e}")
+    return url.replace('https://', '').replace('http://', '')
 
 # --- ФУНКЦИЯ ОТПРАВКИ ---
 def send_msg(peer_id, message, keyboard=None):
@@ -186,10 +196,9 @@ def auto_unban_checker():
         except Exception as e:
             print(f"Ошибка в авто-разбане: {e}")
         
-        time.sleep(5) # Проверка каждые 5 секунд
+        time.sleep(5)
 
 threading.Thread(target=auto_unban_checker, daemon=True).start()
-# ==================================================
 
 print("БОТ ЗАПУЩЕН (Умная система оценок)!")
 
@@ -251,7 +260,6 @@ try:
                         admin_msg = f"⚠️ Пользователь [id{target_user}|Игрок] получил предупреждение ({new_warns}/3). Репорт #{report_id} удален."
                         send_msg(ADMIN_ID, admin_msg)
                         
-                        # ТЕКСТ ПРЕДУПРЕЖДЕНИЯ (Фраза внизу)
                         spam_text = (f"🚫 **ВАШ РЕПОРТ ОТКЛОНЕН!**\n\n"
                                      f"Причина: СПАМ.\n"
                                      f"Ваш счет: {new_warns}/3.\n"
@@ -278,7 +286,6 @@ try:
                     conn.commit()
                     conn.close()
 
-                    # ТЕКСТ ПРИ БАНЕ (Фраза внизу)
                     ban_text = (f"⛔ **ВЫ БЫЛИ АВТОМАТИЧЕСКИ ЗАБЛОКИРОВАНЫ!**\n\n"
                                 f"Причина: Систематический спам (3/3).\n"
                                 f"Кто выдал: [id{ADMIN_ID}|Администратор].\n\n"
@@ -324,9 +331,7 @@ try:
             if not is_ls:
                 continue 
 
-            # =========================================================
-            # 👑 КОМАНДЫ АДМИНИСТРАТОРА (Снятие ЧС)
-            # =========================================================
+            # --- КОМАНДЫ АДМИНИСТРАТОРА (Снятие ЧС) ---
             if user_id == ADMIN_ID:
                 if "снять чс" in text_lower or "разбан" in text_lower:
                     target_user = None
@@ -353,11 +358,8 @@ try:
                     else:
                         send_msg(ADMIN_ID, "❌ Напиши так: `Снять ЧС @id123456` (или ответь на сообщение игрока).", keyboard=get_main_kb())
                     continue
-            # =========================================================
 
-            # =========================================================
-            # 🛑 ПРОВЕРКА НА ЧС (С ЗАЩИТОЙ ОТ ПРОСРОЧКИ)
-            # =========================================================
+            # --- ПРОВЕРКА НА ЧС ---
             warns, ban_until, uploads = get_user_data(user_id)
             current_time = int(time.time())
 
@@ -397,7 +399,6 @@ try:
                 else:
                     time_left = f"{seconds_left // 86400} дн."
 
-                # ТЕКСТ ВО ВРЕМЯ ЧС (Фраза внизу)
                 ban_text = (f"⛔ **ВЫ НАХОДИТЕСЬ В ЧС (ЧЕРНОМ СПИСКЕ)!**\n\n"
                             f"Причина: Спам / Нарушение правил.\n"
                             f"Кто выдал: [id{ADMIN_ID}|Администратор].\n"
@@ -406,7 +407,6 @@ try:
                             f"Если вы не согласны с выдачей ЧС, напишите напрямую в ЛС: [id{ADMIN_ID}|Владелец]")
                 send_msg(peer_id, ban_text)
                 continue 
-            # =========================================================
 
             # КОМАНДА ПИНГ
             if text_lower in ["пинг", "ping", "/ping", "/пинг", "!ping", "!пинг"]:
