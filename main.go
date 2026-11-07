@@ -233,8 +233,8 @@ func handlePhotoUpload(peerID, userID int, msg object.MessagesMessage, mode stri
 		return
 	}
 
-	// ИСПРАВЛЕНО: Теперь передаем массив int, а не string
-	fullMsg, err := vk.MessagesGetByID(params.NewMessagesGetByIDBuilder().MessageIDs([]int{msg.ID}).Params)
+	// ИСПРАВЛЕНО: Теперь передаем массив строк (strconv.Itoa)
+	fullMsg, err := vk.MessagesGetByID(params.NewMessagesGetByIDBuilder().MessageIDs([]string{strconv.Itoa(msg.ID)}).Params)
 	if err != nil || len(fullMsg.Items) == 0 {
 		log.Println("Ошибка getById:", err)
 		return
