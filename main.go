@@ -20,7 +20,7 @@ import (
 	"github.com/SevereCloud/vksdk/v3/events"
 	"github.com/SevereCloud/vksdk/v3/longpoll-bot"
 	"github.com/SevereCloud/vksdk/v3/object"
-	_ "modernc.org/sqlite"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 const (
@@ -65,7 +65,8 @@ func main() {
 
 func initDB() {
 	var err error
-	db, err = sql.Open("sqlite", "super_bot.db")
+	// ИСПОЛЬЗУЕМ sqlite3 (с тройкой)
+	db, err = sql.Open("sqlite3", "super_bot.db")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -234,7 +235,6 @@ func handlePhotoUpload(peerID, userID int, msg object.MessagesMessage, mode stri
 		return
 	}
 
-	// ИСПРАВЛЕНО: Передаем []int, как требует библиотека
 	fullMsg, err := vk.MessagesGetByID(params.NewMessagesGetByIDBuilder().MessageIDs([]int{msg.ID}).Params)
 	if err != nil || len(fullMsg.Items) == 0 {
 		log.Println("Ошибка getById:", err)
@@ -280,7 +280,6 @@ func handlePhotoUpload(peerID, userID int, msg object.MessagesMessage, mode stri
 }
 
 func handleEvent(_ context.Context, obj events.MessageEventObject) {
-	// ИСПРАВЛЕНО: Распаковываем сырые байты payload в читаемый словарь
 	var payload map[string]interface{}
 	payloadBytes, _ := json.Marshal(obj.Payload)
 	json.Unmarshal(payloadBytes, &payload)
@@ -362,7 +361,6 @@ func sendMsg(peerID int, text string, kb interface{}) {
 	b := params.NewMessagesSendBuilder()
 	b.PeerID(peerID)
 	b.Message(text)
-	// ИСПРАВЛЕНО: Приведение int32 к int
 	b.RandomID(int(rand.Int31()))
 	if kb != nil {
 		b.Keyboard(kb)
