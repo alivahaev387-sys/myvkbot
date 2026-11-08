@@ -220,10 +220,10 @@ def auto_unban_checker():
                 conn.commit()
 
                 unban_text = (
-                    f"🎉 **ПРИВЕТСТВУЕМ СНОВА!** 🎉\n\n"
+                    f"🎉 ПРИВЕТСТВУЕМ СНОВА! 🎉\n\n"
                     f"С вас был автоматически снят ЧС (Черный список).\n"
                     f"⏳ Время наказания истекло.\n\n"
-                    f"⚠️ **Пожалуйста, больше не нарушайте правила и не спамьте.** "
+                    f"⚠️ Пожалуйста, больше не нарушайте правила и не спамьте. "
                     f"Следующий бан может быть выдан навсегда!\n\n"
                     f"Бот снова готов с вами работать. Выбирай действие на кнопках 👇"
                 )
@@ -237,7 +237,7 @@ def auto_unban_checker():
 
 threading.Thread(target=auto_unban_checker, daemon=True).start()
 
-# ===== ГЛАВНЫЙ ЦИКЛ (ЗАЩИЩЕН ОТ ВЫЛЕТОВ) =====
+# ===== ГЛАВНЫЙ ЦИКЛ =====
 print("БОТ ЗАПУЩЕН (Умная система оценок)!")
 while True:
     try:
@@ -275,12 +275,12 @@ while True:
                     emoji = "⚠️" if f_type == "neg" else "✨"
                     f_type_text = "Недоволен" if f_type == "neg" else "Доволен"
                     
-                    send_msg(ADMIN_ID, f"{emoji} **Отзыв по репорту #{report_id}!**\n\n"
+                    send_msg(ADMIN_ID, f"{emoji} Отзыв по репорту #{report_id}!\n\n"
                                        f"👤 Игрок: [id{user_id}|Игрок]\n"
                                        f"📊 Оценка: {f_type_text}\n"
-                                       f"💬 Причина: **{reason}**")
+                                       f"💬 Причина: {reason}")
                                        
-                    send_msg(peer_id, f"🙏 **Спасибо за ваш ответ!**\n\nМы зафиксировали: *{reason}*.\nРепорт закрыт. Выбирай действие на кнопках 👇", keyboard=get_main_kb())
+                    send_msg(peer_id, f"🙏 Спасибо за ваш ответ!\n\nМы зафиксировали: {reason}.\nРепорт закрыт. Выбирай действие на кнопках 👇", keyboard=get_main_kb())
                     
                     vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Спасибо! Репорт закрыт."}))
                     continue
@@ -299,7 +299,7 @@ while True:
                     if user_id in waiting_for_feedback:
                         del waiting_for_feedback[user_id]
                     
-                    send_msg(peer_id, "✅ **Репорт успешно закрыт.** Спасибо за обращение!", keyboard=get_main_kb())
+                    send_msg(peer_id, "✅ Репорт успешно закрыт. Спасибо за обращение!", keyboard=get_main_kb())
                     send_msg(ADMIN_ID, f"🔒 Игрок [id{user_id}|Игрок] закрыл репорт #{report_id} без указания причины.")
                     
                     vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Репорт закрыт"}))
@@ -315,7 +315,7 @@ while True:
                             continue
                             
                         waiting_for_manual_reply[ADMIN_ID] = {"target_user": target_user, "report_id": report_id}
-                        send_msg(ADMIN_ID, f"✍️ **Репорт #{report_id}**\nНапиши текст ответа для [id{target_user}|Игрока]:", keyboard=get_main_kb())
+                        send_msg(ADMIN_ID, f"✍️ Репорт #{report_id}\nНапиши текст ответа для [id{target_user}|Игрока]:", keyboard=get_main_kb())
                         vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Напиши ответ в чат"}))
                         continue
                     
@@ -347,10 +347,10 @@ while True:
                             admin_msg = f"⚠️ Пользователь [id{target_user}|Игрок] получил предупреждение ({new_warns}/3). Репорт #{report_id} удален."
                             send_msg(ADMIN_ID, admin_msg)
                             
-                            spam_text = (f"🚫 **ВАШ РЕПОРТ ОТКЛОНЕН!**\n\n"
+                            spam_text = (f"🚫 ВАШ РЕПОРТ ОТКЛОНЕН!\n\n"
                                          f"Причина: СПАМ.\n"
                                          f"Ваш счет: {new_warns}/3.\n"
-                                         f"⚠️ **При 3-х предупреждениях вы будете автоматически отправлены в ЧС!**\n\n"
+                                         f"⚠️ При 3-х предупреждениях вы будете автоматически отправлены в ЧС!\n\n"
                                          f"Кто выдал: [id{ADMIN_ID}|Администратор].\n"
                                          f"Если вы не согласны с выдачей ЧС, обратитесь через ЛС: [id{ADMIN_ID}|Владелец]")
                             send_msg(target_user, spam_text)
@@ -373,7 +373,7 @@ while True:
                         conn.commit()
                         conn.close()
 
-                        ban_text = (f"⛔ **ВЫ БЫЛИ АВТОМАТИЧЕСКИ ЗАБЛОКИРОВАНЫ!**\n\n"
+                        ban_text = (f"⛔ ВЫ БЫЛИ АВТОМАТИЧЕСКИ ЗАБЛОКИРОВАНЫ!\n\n"
                                     f"Причина: Систематический спам (3/3).\n"
                                     f"Кто выдал: [id{ADMIN_ID}|Администратор].\n\n"
                                     f"Если вы не согласны с выдачей ЧС, обратитесь в ЛС: [id{ADMIN_ID}|Владелец]")
@@ -393,7 +393,7 @@ while True:
                         report_id = payload.get("report_id")
                         waiting_for_rating[user_id] = report_id  
                         
-                        text_rate = (f"⭐ **Оцените работу администратора!**\n\n"
+                        text_rate = (f"⭐ Оцените работу администратора!\n\n"
                                      f"Пожалуйста, напишите оценку от 1 до 10 одним числом (например: 10).")
                         send_msg(peer_id, text_rate, keyboard=get_main_kb())
                         vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=peer_id, event_data=json.dumps({"type": "show_snackbar", "text": "Ожидаю оценку..."}))
@@ -411,7 +411,7 @@ while True:
                         if user_id in waiting_for_rating:
                             del waiting_for_rating[user_id]
                             
-                        close_text = (f"✅ **Ваш вопрос успешно закрыт!**\n\n"
+                        close_text = (f"✅ Ваш вопрос успешно закрыт!\n\n"
                                       f"Спасибо за обращение! Если что-то ещё понадобится, мы всегда на связи 👇")
                         send_msg(peer_id, close_text, keyboard=get_main_kb())
                         
@@ -472,7 +472,7 @@ while True:
                             conn.close()
                             
                             send_msg(ADMIN_ID, f"✅ С пользователя [id{target_user}|Игрок] успешно снят ЧС и обнулены варны!", keyboard=get_main_kb())
-                            send_msg(target_user, "✅ **Администратор снял с вас ЧС и обнулил предупреждения!**\n\nБот снова готов с вами работать.")
+                            send_msg(target_user, "✅ Администратор снял с вас ЧС и обнулил предупреждения!\n\nБот снова готов с вами работать.")
                         else:
                             send_msg(ADMIN_ID, "❌ Напиши так: `Снять ЧС @id123456` (или ответь на сообщение игрока).", keyboard=get_main_kb())
                         continue
@@ -490,10 +490,10 @@ while True:
                     ban_until = 0
                     
                     unban_text = (
-                        f"🎉 **ПРИВЕТСТВУЕМ СНОВА!** 🎉\n\n"
+                        f"🎉 ПРИВЕТСТВУЕМ СНОВА! 🎉\n\n"
                         f"С вас был автоматически снят ЧС (Черный список).\n"
                         f"⏳ Время наказания истекло.\n\n"
-                        f"⚠️ **Пожалуйста, больше не нарушайте правила и не спамьте.** "
+                        f"⚠️ Пожалуйста, больше не нарушайте правила и не спамьте. "
                         f"Следующий бан может быть выдан навсегда!\n\n"
                         f"Бот снова готов с вами работать. Выбирай действие на кнопках 👇"
                     )
@@ -516,7 +516,7 @@ while True:
                     else:
                         time_left = f"{seconds_left // 86400} дн."
 
-                    ban_text = (f"⛔ **ВЫ НАХОДИТЕСЬ В ЧС (ЧЕРНОМ СПИСКЕ)!**\n\n"
+                    ban_text = (f"⛔ ВЫ НАХОДИТЕСЬ В ЧС (ЧЕРНОМ СПИСКЕ)!\n\n"
                                 f"Причина: Спам / Нарушение правил.\n"
                                 f"Кто выдал: [id{ADMIN_ID}|Администратор].\n"
                                 f"Осталось: {time_left}\n\n"
@@ -564,11 +564,11 @@ while True:
                         
                         if mode == 'video':
                             if is_photo and not is_video:
-                                send_msg(peer_id, "❌ **Это не видео!**", keyboard=get_main_kb())
+                                send_msg(peer_id, "❌ Это не видео!", keyboard=get_main_kb())
                             elif is_video and links:
                                 add_upload(user_id)
                                 short_link = shorten_link(links[0])
-                                send_msg(peer_id, f"🎬 **Ссылка:**\n{short_link}", keyboard=get_main_kb())
+                                send_msg(peer_id, f"🎬 Ссылка:\n{short_link}", keyboard=get_main_kb())
                             else:
                                 send_msg(peer_id, "❌ Отправь видео!", keyboard=get_main_kb())
                             del waiting_mode[peer_id]
@@ -577,9 +577,9 @@ while True:
                             if is_photo and links:
                                 add_upload(user_id)
                                 short_link = shorten_link(links[0])
-                                final_text = (f"🌿 **Твоя фотография загружена!**\n\n"
+                                final_text = (f"🌿 Твоя фотография загружена!\n\n"
                                               f"🔗 Ссылка: {short_link}\n\n"
-                                              f"💾 **Как сохранить:**\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить».")
+                                              f"💾 Как сохранить:\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить».")
                                 send_msg(peer_id, final_text, keyboard=get_main_kb())
                             else:
                                 send_msg(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
@@ -588,14 +588,14 @@ while True:
                         elif mode == 'multi':
                             if is_photo and links:
                                 add_upload(user_id)
-                                final_text = "🌿 **Твои фотографии загружены!**\n\n"
+                                final_text = "🌿 Твои фотографии загружены!\n\n"
                                 
                                 for i, link in enumerate(links, 1):
                                     short_link = shorten_link(link)
                                     final_text += f"🔗 Фото {i}: {short_link}\n\n"
                                     time.sleep(1.2) 
                                     
-                                final_text += "💾 *Скопируй ссылки и открой в браузере.*"
+                                final_text += "💾 Скопируй ссылки и открой в браузере."
                                 send_msg(peer_id, final_text, keyboard=get_main_kb())
                             else:
                                 send_msg(peer_id, "❌ Отправь фото!", keyboard=get_main_kb())
@@ -618,13 +618,13 @@ while True:
                         del waiting_for_manual_reply[ADMIN_ID]
                         continue
 
-                    player_reply = (f"📩 **Вам ответил администратор** [id{ADMIN_ID}|Владелец]:\n\n"
-                                    f"💬 *{text}*\n\n"
-                                    f"👇 *Пожалуйста, оцените работу или закройте вопрос:*")
+                    player_reply = (f"📩 Вам ответил администратор [id{ADMIN_ID}|Владелец]:\n\n"
+                                    f"💬 {text}\n\n"
+                                    f"👇 Пожалуйста, оцените работу или закройте вопрос:")
                                     
                     send_msg(target_user_id, player_reply, keyboard=get_rating_kb(target_user_id, report_id))
                     
-                    send_msg(ADMIN_ID, f"✅ **Ответ доставлен игроку!**\n👤 Кому: [id{target_user_id}|Игрок]\n📝 Текст: {text}\n\n⏳ *Ожидаем, пока игрок закроет репорт или поставит оценку.*", keyboard=get_main_kb())
+                    send_msg(ADMIN_ID, f"✅ Ответ доставлен игроку!\n👤 Кому: [id{target_user_id}|Игрок]\n📝 Текст: {text}\n\n⏳ Ожидаем, пока игрок закроет репорт или поставит оценку.", keyboard=get_main_kb())
                     
                     del waiting_for_manual_reply[ADMIN_ID]
                     continue
@@ -637,7 +637,7 @@ while True:
                             report_id = waiting_for_rating[user_id]
                             del waiting_for_rating[user_id]
                             
-                            admin_msg = (f"⭐ **Новый отзыв!**\n\n"
+                            admin_msg = (f"⭐ Новый отзыв!\n\n"
                                          f"👤 Пользователь: [id{user_id}|Игрок]\n"
                                          f"🌟 Оценка: {rating}/10\n"
                                          f"📄 По репорту: #{report_id}\n\n")
@@ -647,29 +647,29 @@ while True:
                             if 1 <= rating <= 4:
                                 waiting_for_feedback[user_id] = report_id
                                 
-                                feedback_text = (f"😔 **Спасибо за ваш отзыв (Оценка: {rating}/10).**\n\n"
+                                feedback_text = (f"😔 Спасибо за ваш отзыв (Оценка: {rating}/10).\n\n"
                                                  f"Нам очень жаль, что мы не оправдали ваших ожиданий.\n"
-                                                 f"**Подскажите пожалуйста, что именно вам не понравилось?** (Выберите на кнопках ниже):")
+                                                 f"Подскажите пожалуйста, что именно вам не понравилось? (Выберите на кнопках ниже):")
                                 send_msg(peer_id, feedback_text, keyboard=get_neg_feedback_kb(report_id))
                                 
                             # ===== ЛОГИКА ДЛЯ ХОРОШЕЙ ОЦЕНКИ (5-10) =====
                             else:
                                 waiting_for_feedback[user_id] = report_id
                                 
-                                feedback_text = (f"🤩 **Спасибо за вашу оценку! (Оценка: {rating}/10).**\n\n"
+                                feedback_text = (f"🤩 Спасибо за вашу оценку! (Оценка: {rating}/10).\n\n"
                                                  f"Мы безумно рады, что вам понравилось!\n"
-                                                 f"**Подскажите пожалуйста, что вам понравилось больше всего?** (Выберите на кнопках ниже):")
+                                                 f"Подскажите пожалуйста, что вам понравилось больше всего? (Выберите на кнопках ниже):")
                                 send_msg(peer_id, feedback_text, keyboard=get_pos_feedback_kb(report_id))
                                 
                         else:
-                            send_msg(peer_id, "❌ **Ошибка:** Оценка должна быть числом от 1 до 10. Попробуйте еще раз.", keyboard=get_main_kb())
+                            send_msg(peer_id, "❌ Ошибка: Оценка должна быть числом от 1 до 10. Попробуйте еще раз.", keyboard=get_main_kb())
                     except ValueError:
-                        send_msg(peer_id, "❌ **Ошибка:** Пожалуйста, введите именно число (например: 5).", keyboard=get_main_kb())
+                        send_msg(peer_id, "❌ Ошибка: Пожалуйста, введите именно число (например: 5).", keyboard=get_main_kb())
                     continue
 
                 # ЕСЛИ ИГРОК ПИШЕТ ТЕКСТ, КОГДА ЖДЕТ КНОПКИ ОТЗЫВА
                 if user_id in waiting_for_feedback:
-                    send_msg(peer_id, "⚠️ **Пожалуйста, выберите причину, нажав на одну из кнопок в сообщении выше** 👆\n\nЕсли вопрос решен, просто нажмите **❌ Закрыть репорт** или **оцените репорт, нажав на кнопках вверху**.", keyboard=None)
+                    send_msg(peer_id, "⚠️ Пожалуйста, выберите причину, нажав на одну из кнопок в сообщении выше 👆\n\nЕсли вопрос решен, просто нажмите ❌ Закрыть репорт или оцените репорт, нажав на кнопках вверху.", keyboard=None)
                     continue
 
                 if user_id in waiting_for_manual_report:
@@ -681,11 +681,11 @@ while True:
                         report_id = random.randint(1000, 9999)
                         active_reports[report_id] = user_id 
                         
-                        support_text = f"🆘 **Репорт #{report_id}**\n👤 От: [id{user_id}|Игрок]\n\n💬 {text}"
+                        support_text = f"🆘 Репорт #{report_id}\n👤 От: [id{user_id}|Игрок]\n\n💬 {text}"
                         send_msg(ADMIN_ID, support_text, keyboard=get_admin_report_kb(report_id, user_id))
                         
                         users_in_report.add(user_id) 
-                        send_msg(user_id, "✅ **Ваш репорт отправлен!**\n\nПожалуйста, ожидайте ответа администратора.", keyboard=get_main_kb())
+                        send_msg(user_id, "✅ Ваш репорт отправлен!\n\nПожалуйста, ожидайте ответа администратора.", keyboard=get_main_kb())
                         waiting_for_manual_report.remove(user_id)
                         continue
 
@@ -698,11 +698,11 @@ while True:
                     report_id = random.randint(1000, 9999)
                     active_reports[report_id] = user_id
                     
-                    support_text = f"🆘 **Репорт #{report_id}**\n👤 От: [id{user_id}|Игрок]\n\n💬 {text}"
+                    support_text = f"🆘 Репорт #{report_id}\n👤 От: [id{user_id}|Игрок]\n\n💬 {text}"
                     send_msg(ADMIN_ID, support_text, keyboard=get_admin_report_kb(report_id, user_id))
                     
                     users_in_report.add(user_id) 
-                    send_msg(user_id, "✅ **Ваш репорт отправлен!**\n\nПожалуйста, ожидайте ответа администратора.", keyboard=get_main_kb())
+                    send_msg(user_id, "✅ Ваш репорт отправлен!\n\nПожалуйста, ожидайте ответа администратора.", keyboard=get_main_kb())
                     waiting_for_support.remove(user_id)
                     continue
 
@@ -712,7 +712,7 @@ while True:
                     c.execute("SELECT user_id, warns, ban_until, uploads FROM users")
                     all_users = c.fetchall()
                     conn.close()
-                    stats_text = "📊 **Статистика:**\n\n"
+                    stats_text = "📊 Статистика:\n\n"
                     for u_id, w, b_until, ups in all_users:
                         if w > 0 or b_until > time.time() or ups > 0:
                             ban_status = "Нет" if b_until == 0 or b_until < time.time() else "ДА (ЧС)"
@@ -723,32 +723,32 @@ while True:
                 # Меню
                 if "видео" in text_lower:
                     waiting_mode[peer_id] = 'video'
-                    send_msg(peer_id, "🎬 **Отправь мне видео!**", keyboard=get_main_kb())
+                    send_msg(peer_id, "🎬 Отправь мне видео!", keyboard=get_main_kb())
                 elif "несколько" in text_lower:
                     waiting_mode[peer_id] = 'multi'
-                    send_msg(peer_id, "📸 **Отправь мне несколько фото!**\n\n⚠️ *Важно: прикрепи все фото к **одному сообщению**.*", keyboard=get_main_kb())
+                    send_msg(peer_id, "📸 Отправь мне несколько фото!\n\n⚠️ Важно: прикрепи все фото к одному сообщению.", keyboard=get_main_kb())
                 elif "загрузить фото" in text_lower or "создать ссылку" in text_lower:
                     waiting_mode[peer_id] = 'one'
-                    send_msg(peer_id, "📸 **Отправь мне фотографию, и я сделаю из неё прямую ссылку!**", keyboard=get_main_kb())
+                    send_msg(peer_id, "📸 Отправь мне фотографию, и я сделаю из неё прямую ссылку!", keyboard=get_main_kb())
                 elif "статистика" in text_lower:
-                    send_msg(peer_id, f"📊 **Загружено:** {uploads}", keyboard=get_main_kb())
+                    send_msg(peer_id, f"📊 Загружено: {uploads}", keyboard=get_main_kb())
                 
                 elif "помощь" in text_lower:
-                    help_text = "📖 **Помощь по боту**\n\n1. Жми «Загрузить фото».\n2. Отправь картинку.\n3. Получи прямую ссылку.\n\nПо всем вопросам пиши в поддержку 👇"
+                    help_text = "📖 Помощь по боту\n\n1. Жми «Загрузить фото».\n2. Отправь картинку.\n3. Получи прямую ссылку.\n\nПо всем вопросам пиши в поддержку 👇"
                     send_msg(peer_id, help_text, keyboard=get_help_kb())
                     
                 elif "связь с администрацией" in text_lower:
                     if user_id in users_in_report:
-                        send_msg(peer_id, "⏳ **У вас уже есть активный репорт!**\n\nПожалуйста, дождитесь ответа.", keyboard=get_main_kb())
+                        send_msg(peer_id, "⏳ У вас уже есть активный репорт!\n\nПожалуйста, дождитесь ответа.", keyboard=get_main_kb())
                     else:
-                        send_msg(peer_id, "📩 **Выберите способ обращения в поддержку:**", keyboard=get_choice_kb_player())
+                        send_msg(peer_id, "📩 Выберите способ обращения в поддержку:", keyboard=get_choice_kb_player())
                         
                 elif "выбор по шаблонам" in text_lower:
-                    send_msg(peer_id, "📩 **Выберите тему обращения:**", keyboard=get_templates_kb())
+                    send_msg(peer_id, "📩 Выберите тему обращения:", keyboard=get_templates_kb())
                     waiting_for_support.add(user_id)
                     
                 elif "свой вопрос" in text_lower:
-                    send_msg(peer_id, "✍️ **Напишите вашу проблему одним сообщением (или нажмите 'Назад'):**", keyboard=get_main_kb())
+                    send_msg(peer_id, "✍️ Напишите вашу проблему одним сообщением (или нажмите 'Назад'):", keyboard=get_main_kb())
                     waiting_for_manual_report.add(user_id)
                     
                 elif "назад" in text_lower:
