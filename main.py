@@ -666,17 +666,9 @@ try:
                     send_msg(peer_id, "❌ **Ошибка:** Пожалуйста, введите именно число (например: 5).", keyboard=get_main_kb())
                 continue
 
-            # Если игрок пишет текст вместо нажатия на кнопки фидбека
+            # ЕСЛИ ИГРОК ПИШЕТ ТЕКСТ, КОГДА ЖДЕТ КНОПКИ ОТЗЫВА
             if user_id in waiting_for_feedback:
-                report_id = waiting_for_feedback[user_id]
-                del waiting_for_feedback[user_id]
-                
-                if report_id in active_reports:
-                    del active_reports[report_id]
-                users_in_report.discard(user_id)
-                
-                send_msg(ADMIN_ID, f"⚠️ **Текстовый отзыв по репорту #{report_id}!**\n\n👤 Игрок: [id{user_id}|Игрок]\n💬 Текст: {text}")
-                send_msg(peer_id, "🙏 **Спасибо за подробности!** Мы передали это администрации. Репорт закрыт. Выбирай действие 👇", keyboard=get_main_kb())
+                send_msg(peer_id, "⚠️ **Пожалуйста, выберите причину, нажав на одну из кнопок в сообщении выше** 👆\n\nЕсли вопрос решен, просто нажмите **❌ Закрыть репорт**.", keyboard=None)
                 continue
 
             if user_id in waiting_for_manual_report:
