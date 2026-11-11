@@ -68,17 +68,62 @@ def add_warn(user_id):
 
 init_db()
 
-# --- СОКРАЩЕНИЕ ССЫЛОК (ТОЛЬКО VK.CC, БЕЗ СТОРОННИХ ХОСТИНГОВ) ---
+# --- ЗАГРУЗКА ФОТО НА FASTPIC (БЕЗ СОКРАЩЕНИЯ) ---
+def upload_photo_to_hosting(image_url):
+    try:
+        img = requests.get(image_url, timeout=15).content
+        
+        files = {'upload[]': ('photo.jpg', img, 'image/jpeg')}
+        data = {
+            'uploading': '1',
+            'submit': 'Загрузить'
+        }
+        
+        r = requests.post(
+            "https://fastpic.org/upload",
+            files=files,
+            data=data,
+            timeout=30,
+            allow_redirects=True
+        )
+        
+        if r.status_code == 200:
+            # Ищем прямую ссылку на картинку
+            match = re.search(r'https://i\d+\.fastpic\.org/big/\d{4}/\d{4}/\w+/\w+\.\w+', r.text)
+            if match:
+                return match.group(0)
+                
+            match = re.search(r'https://i\d+\.fastpic\.org/.+?\.(jpg|png|jpeg|gif)', r.text)
+            if match:
+                return match.group(0)
+                
+    except Exception as e:
+        print(f"Ошибка загрузки на FastPic: {e}")
+        
+    # Резерв: Catbox
+    try:
+        img = requests.get(image_url, timeout=15).content
+        r = requests.post(
+            "https://catbox.moe/user/api.php",
+            data={"reqtype": "fileupload"},
+            files={"fileToUpload": ("photo.jpg", img)},
+            timeout=30
+        )
+        if r.status_code == 200 and r.text.strip().startswith("http"):
+            return r.text.strip()
+    except Exception as e:
+        print(f"Ошибка загрузки на Catbox: {e}")
+        
+    return None
+
+# --- СОКРАЩЕНИЕ ССЫЛОК (ТОЛЬКО ДЛЯ ВИДЕО) ---
 def shorten_link(url):
     try:
         res = vk.utils.getShortLink(url=url)
         if 'short_url' in res:
-            # ВК возвращает ссылку уже с https://
             return res['short_url']
     except Exception as e:
         print(f"ВК не смог сократить: {e}")
-    
-    # Если ВК не смог, отдаём исходную ссылку от ВК (тоже с https://)
     return url
 
 # --- ФУНКЦИЯ ОТПРАВКИ ---
@@ -446,6 +491,7 @@ while True:
                                 send_msg(peer_id, "❌ Это не видео!", keyboard=get_main_kb(), reply_to=msg_id)
                             elif is_video and links:
                                 add_upload(user_id)
+                                # Видео можно сокращать, это не запрещено
                                 send_msg(peer_id, f"🎬 Ссылка:\n{shorten_link(links[0])}", keyboard=get_main_kb(), reply_to=msg_id)
                             else:
                                 send_msg(peer_id, "❌ Отправь видео!", keyboard=get_main_kb(), reply_to=msg_id)
@@ -453,11 +499,15 @@ while True:
                             
                         elif mode == 'one':
                             if is_photo and links:
-                                add_upload(user_id)
-                                short_url = shorten_link(links[0])
-                                final_text = (f"🌿 Твоя фотография загружена!\n\n🔗 Ссылка: {short_url}\n\n"
-                                              f"💾 Как сохранить:\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить».")
-                                send_msg(peer_id, final_text, keyboard=get_main_kb(), reply_to=msg_id)
+                                # Загружаем на FastPic, НЕ сокращаем
+                                host_link = upload_photo_to_hosting(links[0])
+                                if host_link:
+                                    add_upload(user_id)
+                                    final_text = (f"🌿 Твоя фотография загружена!\n\n🔗 Прямая ссылка на фотохостинг:\n{host_link}\n\n"
+                                                  f"💾 Как сохранить:\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить».")
+                                    send_msg(peer_id, final_text, keyboard=get_main_kb(), reply_to=msg_id)
+                                else:
+                                    send_msg(peer_id, "❌ Ошибка при загрузке фото. Попробуй ещё раз.", keyboard=get_main_kb(), reply_to=msg_id)
                             else:
                                 send_msg(peer_id, "❌ Отправь фото!", keyboard=get_main_kb(), reply_to=msg_id)
                             del waiting_mode[peer_id]
@@ -467,8 +517,11 @@ while True:
                                 add_upload(user_id)
                                 final_text = "🌿 Твои фотографии загружены!\n\n"
                                 for i, link in enumerate(links, 1):
-                                    short_url = shorten_link(link)
-                                    final_text += f"🔗 Фото {i}: {short_url}\n\n"
+                                    host_link = upload_photo_to_hosting(link)
+                                    if host_link:
+                                        final_text += f"🔗 Фото {i}: {host_link}\n\n"
+                                    else:
+                                        final_text += f"❌ Фото {i}: Ошибка загрузки\n\n"
                                     time.sleep(1.2) 
                                 final_text += "💾 Скопируй ссылки и открой в браузере."
                                 send_msg(peer_id, final_text, keyboard=get_main_kb(), reply_to=msg_id)
