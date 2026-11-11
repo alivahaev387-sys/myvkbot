@@ -68,27 +68,24 @@ def add_warn(user_id):
 
 init_db()
 
-# --- ЗАГРУЗКА ФОТО НА POSTIMAGES.ORG ---
+# --- ЗАГРУЗКА ФОТО НА IMGBB (БЕЗ API-КЛЮЧА) ---
 def upload_photo_to_hosting(image_url):
     try:
         img = requests.get(image_url, timeout=15).content
         
-        # Отправляем файл на JSON-эндпоинт Postimages
-        files = {'file': ('photo.jpg', img, 'image/jpeg')}
         r = requests.post(
-            "https://postimages.org/json/rr",
-            files=files,
+            "https://imgbb.com/json",
+            files={"image": ("photo.jpg", img, "image/jpeg")},
             timeout=30
         )
         
         if r.status_code == 200:
             data = r.json()
-            # Проверяем, что API вернуло успешный статус и ссылку
-            if data.get("status") == "OK" and data.get("url"):
-                return data["url"]
+            if data.get("status") == "OK" and data.get("image", {}).get("url"):
+                return data["image"]["url"]
                 
     except Exception as e:
-        print(f"Ошибка загрузки на Postimages: {e}")
+        print(f"Ошибка загрузки на ImgBB: {e}")
         
     return None
 
@@ -457,7 +454,6 @@ while True:
                                 send_msg(peer_id, "❌ Это не видео!", keyboard=get_main_kb(), reply_to=msg_id)
                             elif is_video and links:
                                 add_upload(user_id)
-                                # Для видео оставляем сокращение vk.cc
                                 short_url = shorten_link(links[0])
                                 send_msg(peer_id, f"🎬 Ссылка:\n{short_url}", keyboard=get_main_kb(), reply_to=msg_id)
                             else:
@@ -466,7 +462,6 @@ while True:
                             
                         elif mode == 'one':
                             if is_photo and links:
-                                # Загружаем на Postimages, получаем прямую ссылку
                                 host_link = upload_photo_to_hosting(links[0])
                                 if host_link:
                                     add_upload(user_id)
