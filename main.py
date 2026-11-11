@@ -8,9 +8,6 @@ TOKEN = "vk1.a.GPEBmYPG-udUnhJYcT_4Zo-jEKzU7VFUYVzRDNwr1wVwo_fsBabigDoS-2BW9bvMb
 ADMIN_ID = 200005093141
 GROUP_ID = 242296265 
 
-# --- ТВОЙ КЛЮЧ ОТ IMGBB ---
-IMGBB_API_KEY = "31b2e3aefc5557a2c9016f2d5232b18b" 
-
 vk_session = vk_api.VkApi(token=TOKEN)
 longpoll = VkBotLongPoll(vk_session, GROUP_ID)
 vk = vk_session.get_api()
@@ -71,31 +68,24 @@ def add_warn(user_id):
 
 init_db()
 
-# --- ЗАГРУЗКА ФОТО НА IMGBB ЧЕРЕЗ API КЛЮЧ ---
+# --- ЗАГРУЗКА ФОТО НА YAPX.RU (РАБОТАЕТ ИЗ РФ, ВК НЕ БЛОКИРУЕТ) ---
 def upload_photo_to_hosting(image_url):
-    if not IMGBB_API_KEY:
-        print("⚠️ ОШИБКА: Вы не указали IMGBB_API_KEY в коде!")
-        return None
-        
     try:
         img = requests.get(image_url, timeout=15).content
         
         r = requests.post(
-            "https://api.imgbb.com/1/upload",
-            params={"key": IMGBB_API_KEY},
-            files={"image": ("photo.jpg", img)},
+            "https://yapx.ru/v1/api/images",
+            files={"file": ("photo.jpg", img, "image/jpeg")},
             timeout=30
         )
         
         if r.status_code == 200:
             data = r.json()
-            # Возвращаем прямую ссылку на картинку
-            return data["data"]["url"]
-        else:
-            print(f"Ошибка ImgBB API: {r.status_code} - {r.text}")
-            
+            if data.get("success") and data.get("data", {}).get("url"):
+                return data["data"]["url"]
+                
     except Exception as e:
-        print(f"Исключение при загрузке на ImgBB: {e}")
+        print(f"Ошибка загрузки на Yapx: {e}")
         
     return None
 
@@ -489,7 +479,7 @@ while True:
                                                   f"💾 Как сохранить:\n1. Скопируй ссылку.\n2. Вставь её в браузер.\n3. Зажми картинку и выбери «Сохранить».")
                                     send_msg(peer_id, final_text, keyboard=get_main_kb(), reply_to=msg_id)
                                 else:
-                                    send_msg(peer_id, "❌ Ошибка при загрузке фото. Проверь API-ключ в коде.", keyboard=get_main_kb(), reply_to=msg_id)
+                                    send_msg(peer_id, "❌ Ошибка при загрузке фото. Попробуй ещё раз.", keyboard=get_main_kb(), reply_to=msg_id)
                             else:
                                 send_msg(peer_id, "❌ Отправь фото!", keyboard=get_main_kb(), reply_to=msg_id)
                             del waiting_mode[peer_id]
