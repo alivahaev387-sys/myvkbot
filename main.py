@@ -68,33 +68,17 @@ def add_warn(user_id):
 
 init_db()
 
-# --- ЗАГРУЗКА ФОТО НА ХОСТИНГ (ЧТОБЫ ССЫЛКА БЫЛА ВЕЧНОЙ) ---
-def upload_photo_to_hosting(image_url):
-    try:
-        img = requests.get(image_url, timeout=15).content
-        r = requests.post(
-            "https://catbox.moe/user/api.php",
-            data={"reqtype": "fileupload"},
-            files={"fileToUpload": ("photo.jpg", img)},
-            timeout=30
-        )
-        if r.status_code == 200 and r.text.strip().startswith("http"):
-            return r.text.strip()
-    except Exception as e:
-        print(f"Ошибка загрузки на хостинг: {e}")
-    return None
-
-# --- СОКРАЩЕНИЕ ССЫЛОК (С HTTPS ДЛЯ ФОРУМА) ---
+# --- СОКРАЩЕНИЕ ССЫЛОК (ТОЛЬКО VK.CC, БЕЗ СТОРОННИХ ХОСТИНГОВ) ---
 def shorten_link(url):
     try:
         res = vk.utils.getShortLink(url=url)
         if 'short_url' in res:
-            # Возвращаем с https://, чтобы на форуме было кликабельно
+            # ВК возвращает ссылку уже с https://
             return res['short_url']
     except Exception as e:
         print(f"ВК не смог сократить: {e}")
     
-    # Если ВК не смог, отдаём прямую рабочую ссылку
+    # Если ВК не смог, отдаём исходную ссылку от ВК (тоже с https://)
     return url
 
 # --- ФУНКЦИЯ ОТПРАВКИ ---
@@ -469,16 +453,11 @@ while True:
                             
                         elif mode == 'one':
                             if is_photo and links:
-                                # Грузим на хостинг и делаем вечную ссылку
-                                host_link = upload_photo_to_hosting(links[0])
-                                if host_link:
-                                    add_upload(user_id)
-                                    short_url = shorten_link(host_link)
-                                    final_text = (f"🌿 Твоя фотография загружена!\n\n🔗 Ссылка: {short_url}\n\n"
-                                                  f"💾 Как сохранить:\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить».")
-                                    send_msg(peer_id, final_text, keyboard=get_main_kb(), reply_to=msg_id)
-                                else:
-                                    send_msg(peer_id, "❌ Ошибка при загрузке фото. Попробуй ещё раз.", keyboard=get_main_kb(), reply_to=msg_id)
+                                add_upload(user_id)
+                                short_url = shorten_link(links[0])
+                                final_text = (f"🌿 Твоя фотография загружена!\n\n🔗 Ссылка: {short_url}\n\n"
+                                              f"💾 Как сохранить:\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить».")
+                                send_msg(peer_id, final_text, keyboard=get_main_kb(), reply_to=msg_id)
                             else:
                                 send_msg(peer_id, "❌ Отправь фото!", keyboard=get_main_kb(), reply_to=msg_id)
                             del waiting_mode[peer_id]
@@ -488,12 +467,8 @@ while True:
                                 add_upload(user_id)
                                 final_text = "🌿 Твои фотографии загружены!\n\n"
                                 for i, link in enumerate(links, 1):
-                                    host_link = upload_photo_to_hosting(link)
-                                    if host_link:
-                                        short_url = shorten_link(host_link)
-                                        final_text += f"🔗 Фото {i}: {short_url}\n\n"
-                                    else:
-                                        final_text += f"❌ Фото {i}: Ошибка загрузки\n\n"
+                                    short_url = shorten_link(link)
+                                    final_text += f"🔗 Фото {i}: {short_url}\n\n"
                                     time.sleep(1.2) 
                                 final_text += "💾 Скопируй ссылки и открой в браузере."
                                 send_msg(peer_id, final_text, keyboard=get_main_kb(), reply_to=msg_id)
