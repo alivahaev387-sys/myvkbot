@@ -68,7 +68,7 @@ def add_warn(user_id):
 
 init_db()
 
-# --- ЗАГРУЗКА ФОТО НА ПОСТОЯННЫЙ ХОСТИНГ ---
+# --- ЗАГРУЗКА ФОТО НА ХОСТИНГ (ЧТОБЫ ССЫЛКА БЫЛА ВЕЧНОЙ) ---
 def upload_photo_to_hosting(image_url):
     try:
         img = requests.get(image_url, timeout=15).content
@@ -79,28 +79,23 @@ def upload_photo_to_hosting(image_url):
             timeout=30
         )
         if r.status_code == 200 and r.text.strip().startswith("http"):
-            return r.text.strip() # Возвращает вечную ссылку
+            return r.text.strip()
     except Exception as e:
         print(f"Ошибка загрузки на хостинг: {e}")
     return None
 
-# --- УЛУЧШЕННОЕ СОКРАЩЕНИЕ ССЫЛОК (как было у тебя) ---
+# --- СОКРАЩЕНИЕ ССЫЛОК (С HTTPS ДЛЯ ФОРУМА) ---
 def shorten_link(url):
     try:
         res = vk.utils.getShortLink(url=url)
         if 'short_url' in res:
-            return res['short_url'].replace('https://', '').replace('http://', '')
-    except Exception:
-        pass 
+            # Возвращаем с https://, чтобы на форуме было кликабельно
+            return res['short_url']
+    except Exception as e:
+        print(f"ВК не смог сократить: {e}")
     
-    try:
-        res = requests.get(f"https://clck.ru/--?url={url}", timeout=5)
-        if res.status_code == 200:
-            return res.text.strip().replace('https://', '').replace('http://', '')
-    except Exception:
-        pass
-        
-    return url.replace('https://', '').replace('http://', '')
+    # Если ВК не смог, отдаём прямую рабочую ссылку
+    return url
 
 # --- ФУНКЦИЯ ОТПРАВКИ ---
 def send_msg(peer_id, message, keyboard=None, reply_to=None):
@@ -474,7 +469,7 @@ while True:
                             
                         elif mode == 'one':
                             if is_photo and links:
-                                # ЗАГРУЖАЕМ НА ПОСТОЯННЫЙ ХОСТИНГ И СОКРАЩАЕМ
+                                # Грузим на хостинг и делаем вечную ссылку
                                 host_link = upload_photo_to_hosting(links[0])
                                 if host_link:
                                     add_upload(user_id)
@@ -483,7 +478,7 @@ while True:
                                                   f"💾 Как сохранить:\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить».")
                                     send_msg(peer_id, final_text, keyboard=get_main_kb(), reply_to=msg_id)
                                 else:
-                                    send_msg(peer_id, "❌ Ошибка при загрузке фото на сервер. Попробуй ещё раз.", keyboard=get_main_kb(), reply_to=msg_id)
+                                    send_msg(peer_id, "❌ Ошибка при загрузке фото. Попробуй ещё раз.", keyboard=get_main_kb(), reply_to=msg_id)
                             else:
                                 send_msg(peer_id, "❌ Отправь фото!", keyboard=get_main_kb(), reply_to=msg_id)
                             del waiting_mode[peer_id]
