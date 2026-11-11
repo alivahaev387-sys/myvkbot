@@ -68,16 +68,10 @@ def add_warn(user_id):
 
 init_db()
 
-# --- ЗАГРУЗКА ФОТО НА ПОСТОЯННЫЙ ХОСТИНГ (ссылка БЕЗ https://) ---
+# --- ЗАГРУЗКА ФОТО НА ПОСТОЯННЫЙ ХОСТИНГ ---
 def upload_photo_to_hosting(image_url):
     try:
         img = requests.get(image_url, timeout=15).content
-    except Exception as e:
-        print(f"Ошибка скачивания фото: {e}")
-        return None
-
-    # Пробуем catbox.moe
-    try:
         r = requests.post(
             "https://catbox.moe/user/api.php",
             data={"reqtype": "fileupload"},
@@ -85,25 +79,12 @@ def upload_photo_to_hosting(image_url):
             timeout=30
         )
         if r.status_code == 200 and r.text.strip().startswith("http"):
-            return r.text.strip().replace('https://', '').replace('http://', '')
+            return r.text.strip() # Возвращает вечную ссылку
     except Exception as e:
-        print(f"catbox ошибка: {e}")
-
-    # Резерв: 0x0.st
-    try:
-        r = requests.post(
-            "https://0x0.st",
-            files={"file": ("photo.jpg", img)},
-            timeout=30
-        )
-        if r.status_code == 200 and r.text.strip().startswith("http"):
-            return r.text.strip().replace('https://', '').replace('http://', '')
-    except Exception as e:
-        print(f"0x0 ошибка: {e}")
-
+        print(f"Ошибка загрузки на хостинг: {e}")
     return None
 
-# --- УЛУЧШЕННОЕ СОКРАЩЕНИЕ ССЫЛОК ---
+# --- УЛУЧШЕННОЕ СОКРАЩЕНИЕ ССЫЛОК (как было у тебя) ---
 def shorten_link(url):
     try:
         res = vk.utils.getShortLink(url=url)
@@ -493,14 +474,16 @@ while True:
                             
                         elif mode == 'one':
                             if is_photo and links:
+                                # ЗАГРУЖАЕМ НА ПОСТОЯННЫЙ ХОСТИНГ И СОКРАЩАЕМ
                                 host_link = upload_photo_to_hosting(links[0])
                                 if host_link:
                                     add_upload(user_id)
-                                    final_text = (f"🌿 Твоя фотография загружена!\n\n🔗 Ссылка: {host_link}\n\n"
-                                                  f"💾 Как сохранить:\n1. Скопируй ссылку.\n2. Вставь её в браузер (https:// добавится автоматически).\n3. Зажми картинку и выбери «Сохранить».")
+                                    short_url = shorten_link(host_link)
+                                    final_text = (f"🌿 Твоя фотография загружена!\n\n🔗 Ссылка: {short_url}\n\n"
+                                                  f"💾 Как сохранить:\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить».")
                                     send_msg(peer_id, final_text, keyboard=get_main_kb(), reply_to=msg_id)
                                 else:
-                                    send_msg(peer_id, "❌ Не удалось загрузить фото на хостинг. Попробуй ещё раз.", keyboard=get_main_kb(), reply_to=msg_id)
+                                    send_msg(peer_id, "❌ Ошибка при загрузке фото на сервер. Попробуй ещё раз.", keyboard=get_main_kb(), reply_to=msg_id)
                             else:
                                 send_msg(peer_id, "❌ Отправь фото!", keyboard=get_main_kb(), reply_to=msg_id)
                             del waiting_mode[peer_id]
@@ -509,20 +492,16 @@ while True:
                             if is_photo and links:
                                 add_upload(user_id)
                                 final_text = "🌿 Твои фотографии загружены!\n\n"
-                                uploaded = 0
                                 for i, link in enumerate(links, 1):
                                     host_link = upload_photo_to_hosting(link)
                                     if host_link:
-                                        final_text += f"🔗 Фото {i}: {host_link}\n\n"
-                                        uploaded += 1
+                                        short_url = shorten_link(host_link)
+                                        final_text += f"🔗 Фото {i}: {short_url}\n\n"
                                     else:
-                                        final_text += f"❌ Фото {i}: ошибка загрузки\n\n"
-                                    time.sleep(1.2)
-                                if uploaded > 0:
-                                    final_text += "💾 Скопируй ссылки и открой в браузере (https:// добавится автоматически)."
-                                    send_msg(peer_id, final_text, keyboard=get_main_kb(), reply_to=msg_id)
-                                else:
-                                    send_msg(peer_id, "❌ Не удалось загрузить фото на хостинг. Попробуй ещё раз.", keyboard=get_main_kb(), reply_to=msg_id)
+                                        final_text += f"❌ Фото {i}: Ошибка загрузки\n\n"
+                                    time.sleep(1.2) 
+                                final_text += "💾 Скопируй ссылки и открой в браузере."
+                                send_msg(peer_id, final_text, keyboard=get_main_kb(), reply_to=msg_id)
                             else:
                                 send_msg(peer_id, "❌ Отправь фото!", keyboard=get_main_kb(), reply_to=msg_id)
                         continue
