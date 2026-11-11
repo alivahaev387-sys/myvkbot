@@ -68,63 +68,29 @@ def add_warn(user_id):
 
 init_db()
 
-# --- ЗАГРУЗКА ФОТО НА FASTPIC (БЕЗ СОКРАЩЕНИЯ) ---
+# --- ЗАГРУЗКА ФОТО НА POSTIMAGES.ORG ---
 def upload_photo_to_hosting(image_url):
     try:
         img = requests.get(image_url, timeout=15).content
         
-        files = {'upload[]': ('photo.jpg', img, 'image/jpeg')}
-        data = {
-            'uploading': '1',
-            'submit': 'Загрузить'
-        }
-        
+        # Отправляем файл на JSON-эндпоинт Postimages
+        files = {'file': ('photo.jpg', img, 'image/jpeg')}
         r = requests.post(
-            "https://fastpic.org/upload",
+            "https://postimages.org/json/rr",
             files=files,
-            data=data,
-            timeout=30,
-            allow_redirects=True
+            timeout=30
         )
         
         if r.status_code == 200:
-            # Ищем прямую ссылку на картинку
-            match = re.search(r'https://i\d+\.fastpic\.org/big/\d{4}/\d{4}/\w+/\w+\.\w+', r.text)
-            if match:
-                return match.group(0)
-                
-            match = re.search(r'https://i\d+\.fastpic\.org/.+?\.(jpg|png|jpeg|gif)', r.text)
-            if match:
-                return match.group(0)
+            data = r.json()
+            # Проверяем, что API вернуло успешный статус и ссылку
+            if data.get("status") == "OK" and data.get("url"):
+                return data["url"]
                 
     except Exception as e:
-        print(f"Ошибка загрузки на FastPic: {e}")
-        
-    # Резерв: Catbox
-    try:
-        img = requests.get(image_url, timeout=15).content
-        r = requests.post(
-            "https://catbox.moe/user/api.php",
-            data={"reqtype": "fileupload"},
-            files={"fileToUpload": ("photo.jpg", img)},
-            timeout=30
-        )
-        if r.status_code == 200 and r.text.strip().startswith("http"):
-            return r.text.strip()
-    except Exception as e:
-        print(f"Ошибка загрузки на Catbox: {e}")
+        print(f"Ошибка загрузки на Postimages: {e}")
         
     return None
-
-# --- СОКРАЩЕНИЕ ССЫЛОК (ТОЛЬКО ДЛЯ ВИДЕО) ---
-def shorten_link(url):
-    try:
-        res = vk.utils.getShortLink(url=url)
-        if 'short_url' in res:
-            return res['short_url']
-    except Exception as e:
-        print(f"ВК не смог сократить: {e}")
-    return url
 
 # --- ФУНКЦИЯ ОТПРАВКИ ---
 def send_msg(peer_id, message, keyboard=None, reply_to=None):
@@ -491,20 +457,21 @@ while True:
                                 send_msg(peer_id, "❌ Это не видео!", keyboard=get_main_kb(), reply_to=msg_id)
                             elif is_video and links:
                                 add_upload(user_id)
-                                # Видео можно сокращать, это не запрещено
-                                send_msg(peer_id, f"🎬 Ссылка:\n{shorten_link(links[0])}", keyboard=get_main_kb(), reply_to=msg_id)
+                                # Для видео оставляем сокращение vk.cc
+                                short_url = shorten_link(links[0])
+                                send_msg(peer_id, f"🎬 Ссылка:\n{short_url}", keyboard=get_main_kb(), reply_to=msg_id)
                             else:
                                 send_msg(peer_id, "❌ Отправь видео!", keyboard=get_main_kb(), reply_to=msg_id)
                             del waiting_mode[peer_id]
                             
                         elif mode == 'one':
                             if is_photo and links:
-                                # Загружаем на FastPic, НЕ сокращаем
+                                # Загружаем на Postimages, получаем прямую ссылку
                                 host_link = upload_photo_to_hosting(links[0])
                                 if host_link:
                                     add_upload(user_id)
                                     final_text = (f"🌿 Твоя фотография загружена!\n\n🔗 Прямая ссылка на фотохостинг:\n{host_link}\n\n"
-                                                  f"💾 Как сохранить:\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить».")
+                                                  f"💾 Как сохранить:\n1. Скопируй ссылку.\n2. Вставь её в браузер.\n3. Зажми картинку и выбери «Сохранить».")
                                     send_msg(peer_id, final_text, keyboard=get_main_kb(), reply_to=msg_id)
                                 else:
                                     send_msg(peer_id, "❌ Ошибка при загрузке фото. Попробуй ещё раз.", keyboard=get_main_kb(), reply_to=msg_id)
