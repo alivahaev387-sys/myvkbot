@@ -68,35 +68,17 @@ def add_warn(user_id):
 
 init_db()
 
-# --- ЗАГРУЗКА ФОТО НА YAPX.RU (РАБОТАЕТ ИЗ РФ, ВК НЕ БЛОКИРУЕТ) ---
-def upload_photo_to_hosting(image_url):
-    try:
-        img = requests.get(image_url, timeout=15).content
-        
-        r = requests.post(
-            "https://yapx.ru/v1/api/images",
-            files={"file": ("photo.jpg", img, "image/jpeg")},
-            timeout=30
-        )
-        
-        if r.status_code == 200:
-            data = r.json()
-            if data.get("success") and data.get("data", {}).get("url"):
-                return data["data"]["url"]
-                
-    except Exception as e:
-        print(f"Ошибка загрузки на Yapx: {e}")
-        
-    return None
-
-# --- СОКРАЩЕНИЕ ССЫЛОК (ТОЛЬКО ДЛЯ ВИДЕО) ---
+# --- СОКРАЩЕНИЕ ССЫЛОК (ТОЛЬКО VK.CC, БЕЗ СТОРОННИХ ХОСТИНГОВ) ---
 def shorten_link(url):
     try:
         res = vk.utils.getShortLink(url=url)
         if 'short_url' in res:
+            # ВК возвращает ссылку уже с https://
             return res['short_url']
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"ВК не смог сократить: {e}")
+    
+    # Если ВК не смог, отдаём исходную ссылку от ВК (тоже с https://)
     return url
 
 # --- ФУНКЦИЯ ОТПРАВКИ ---
@@ -464,22 +446,18 @@ while True:
                                 send_msg(peer_id, "❌ Это не видео!", keyboard=get_main_kb(), reply_to=msg_id)
                             elif is_video and links:
                                 add_upload(user_id)
-                                short_url = shorten_link(links[0])
-                                send_msg(peer_id, f"🎬 Ссылка:\n{short_url}", keyboard=get_main_kb(), reply_to=msg_id)
+                                send_msg(peer_id, f"🎬 Ссылка:\n{shorten_link(links[0])}", keyboard=get_main_kb(), reply_to=msg_id)
                             else:
                                 send_msg(peer_id, "❌ Отправь видео!", keyboard=get_main_kb(), reply_to=msg_id)
                             del waiting_mode[peer_id]
                             
                         elif mode == 'one':
                             if is_photo and links:
-                                host_link = upload_photo_to_hosting(links[0])
-                                if host_link:
-                                    add_upload(user_id)
-                                    final_text = (f"🌿 Твоя фотография загружена!\n\n🔗 Прямая ссылка на фотохостинг:\n{host_link}\n\n"
-                                                  f"💾 Как сохранить:\n1. Скопируй ссылку.\n2. Вставь её в браузер.\n3. Зажми картинку и выбери «Сохранить».")
-                                    send_msg(peer_id, final_text, keyboard=get_main_kb(), reply_to=msg_id)
-                                else:
-                                    send_msg(peer_id, "❌ Ошибка при загрузке фото. Попробуй ещё раз.", keyboard=get_main_kb(), reply_to=msg_id)
+                                add_upload(user_id)
+                                short_url = shorten_link(links[0])
+                                final_text = (f"🌿 Твоя фотография загружена!\n\n🔗 Ссылка: {short_url}\n\n"
+                                              f"💾 Как сохранить:\n1. Скопируй ссылку.\n2. Вставь её в браузер (Safari).\n3. Зажми картинку и выбери «Сохранить».")
+                                send_msg(peer_id, final_text, keyboard=get_main_kb(), reply_to=msg_id)
                             else:
                                 send_msg(peer_id, "❌ Отправь фото!", keyboard=get_main_kb(), reply_to=msg_id)
                             del waiting_mode[peer_id]
@@ -489,11 +467,8 @@ while True:
                                 add_upload(user_id)
                                 final_text = "🌿 Твои фотографии загружены!\n\n"
                                 for i, link in enumerate(links, 1):
-                                    host_link = upload_photo_to_hosting(link)
-                                    if host_link:
-                                        final_text += f"🔗 Фото {i}: {host_link}\n\n"
-                                    else:
-                                        final_text += f"❌ Фото {i}: Ошибка загрузки\n\n"
+                                    short_url = shorten_link(link)
+                                    final_text += f"🔗 Фото {i}: {short_url}\n\n"
                                     time.sleep(1.2) 
                                 final_text += "💾 Скопируй ссылки и открой в браузере."
                                 send_msg(peer_id, final_text, keyboard=get_main_kb(), reply_to=msg_id)
